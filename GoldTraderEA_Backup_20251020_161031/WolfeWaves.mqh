@@ -559,25 +559,7 @@ bool CheckWolfeWavesShort(const MqlRates &rates[], int size)
     double minMove = 0.3 * (rates[point5].high - rates[point4].low);
     if (rates[0].close > rates[point5].high - minMove)
         return false;
-
+    
     // All conditions met, bearish Wolfe Wave pattern is confirmed
     return true;
-}
-
-//+------------------------------------------------------------------+
-//| Safe wrapper for Wolfe Waves Buy check                           |
-//+------------------------------------------------------------------+
-int SafeCheckWolfeWavesBuy(MqlRates &rates[])
-{
-    // Use the int-returning version (line 252)
-    return CheckWolfeWavesBuy(rates);
-}
-
-//+------------------------------------------------------------------+
-//| Safe wrapper for Wolfe Waves Short check                         |
-//+------------------------------------------------------------------+
-int SafeCheckWolfeWavesShort(MqlRates &rates[])
-{
-    // Use the int-returning version
-    return CheckWolfeWavesShort(rates);
-}
+} 

@@ -27,7 +27,7 @@ extern long g_volumes[];
 #import
 
 // The CheckArrayAccess function must be defined in the main file
-#import "GoldTraderEA.mq5"
+#import "GoldTraderEA_cleaned.mq5"
 bool CheckArrayAccess(int index, int array_size, string function_name);
 #import
 

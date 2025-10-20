@@ -1,52 +1,11 @@
 //+------------------------------------------------------------------+
-//|                                                 GoldTraderEA.mq5 |
-//|                                  Copyright 2024, Your Name Here  |
-//|                                             https://www.mql5.com |
+//|                                         GoldTraderEA.mq5    |
+//|                                                                   |
+//|                    Created with Assist                            |
 //+------------------------------------------------------------------+
-//| Description: Multi-strategy Expert Advisor for Gold (XAUUSD)     |
-//|              Uses weighted confirmation system with 14 strategies |
-//|                                                                   |
-//| Version: 1.2.0 (Trailing Stop Feature)                            |
-//| Last Modified: 2025-01-20                                         |
-//|                                                                   |
-//| Key Features:                                                     |
-//| - 14 technical analysis strategies                                |
-//| - Weighted confirmation system                                    |
-//| - Dynamic ATR-based stop loss/take profit                         |
-//| - Automatic trailing stop loss (NEW!)                             |
-//| - Risk management with position sizing                            |
-//| - Multiple trading session filters                                |
-//| - Bad trading day detection                                       |
-//|                                                                   |
-//| Strategies:                                                       |
-//| 1. Candle Patterns    2. Chart Patterns    3. Price Action       |
-//| 4. Elliott Waves      5. Indicators        6. Divergence          |
-//| 7. Support/Resistance 8. Harmonic Patterns 9. MA Crossover        |
-//| 10. Pivot Points      11. Time Analysis    12. Volume Analysis    |
-//| 13. Wolfe Waves       14. Multi-Timeframe                         |
-//|                                                                   |
-//| Fixes Applied (v1.1.0):                                           |
-//| - Fixed inefficient MA calculation (50-90% performance boost)     |
-//| - Added array bounds checking (prevents crashes)                  |
-//| - Implemented Wolfe Waves strategy calls                          |
-//| - Fixed import statement in Indicators.mqh                        |
-//| - Removed redundant forward declarations                          |
-//| - Implemented Min_RR_Ratio validation                             |
-//| - Added comprehensive input parameter validation                  |
-//| - Made hardcoded values configurable                              |
-//| - Removed unused variables                                        |
-//| - Cleaned up commented code                                       |
-//|                                                                   |
-//| New Features (v1.2.0):                                            |
-//| - Automatic trailing stop loss                                    |
-//| - ATR-based or fixed pip trailing distance                        |
-//| - Configurable activation threshold                               |
-//| - Breakeven protection option                                     |
-//| - Real-time position monitoring                                   |
-//+------------------------------------------------------------------+
-#property copyright "Copyright 2024"
-#property link      "https://www.mql5.com"
-#property version   "1.20"
+#property copyright "Copyright 2023"
+#property link      ""
+#property version   "1.00"
 #property strict
 
 //+------------------------------------------------------------------+
@@ -82,11 +41,12 @@ input double   Fixed_Lot_Size = 0.1;           // Fixed lot size (if 0, use risk
 input double   Max_Lot_Size = 0.3;              // Maximum lot size
 input double   Max_Position_Volume = 1.0;       // Maximum volume of open positions
 input int      Max_Positions = 1;               // Maximum number of open positions
+input int      Max_Simultaneous_Trades = 1;     // Maximum number of simultaneous trades 
 input int      Min_Confirmations = 7;           // Minimum number of confirmations
 
 // Declaration of input variables for general parameters
 input string              General_Settings = "---- General Settings ----"; // Main parameters
-input int                 Magic_Number = 123456;                  // Robot identification number (change if running multiple EAs)
+input int                 Magic_Number = 123456;                  // Robot identification number
 input bool                Require_MainTrend_Alignment = true;     // Align trades with the main trend (100 moving average)
 
 // Strategy activation
@@ -117,24 +77,6 @@ input int      max_trades_per_candle = 1;      // Maximum number of trades allow
 input int      MA_Trend_Period = 100;          // Moving average period for determining the main trend
 input bool     Use_Main_Trend_Filter = true;   // Use main trend filter
 
-// Performance and timing parameters
-input int      Min_Seconds_Between_Trades = 60;     // Minimum seconds between trades
-input int      Min_Tick_Processing_Interval = 5;    // Minimum seconds between OnTick processing
-
-// Volatility and risk filters
-input double   High_Volatility_Threshold = 1.5;     // ATR multiplier for high volatility detection (1.5 = 50% above average)
-input double   Extreme_Movement_Threshold = 1.5;    // Price change % threshold for extreme movement
-input int      Bad_Day_Score_Threshold = 3;         // Minimum score to consider it a bad trading day
-
-// Trailing Stop Loss Settings
-input string              Trailing_Stop_Settings = "---- Trailing Stop Loss ----"; // Trailing stop parameters
-input bool                Use_Trailing_Stop = true;                    // Enable trailing stop loss
-input bool                Use_ATR_Trailing = true;                     // Use ATR for trailing distance (if false, uses pips)
-input double              Trailing_Stop_Pips = 50;                     // Trailing stop distance in pips (if not using ATR)
-input double              ATR_Trailing_Multiplier = 1.5;               // ATR multiplier for trailing distance
-input double              Min_Profit_To_Trail_Pips = 30;               // Minimum profit in pips before trailing activates
-input bool                Trail_After_Breakeven = true;                // Only trail after reaching breakeven + minimum profit
-
 // Weights of strategies (importance of each strategy)
 input int      CandlePatterns_Weight = 1;      // Weight of candle patterns
 input int      ChartPatterns_Weight = 2;       // Weight of chart patterns
@@ -160,6 +102,7 @@ CAccountInfo account;             // Account info object
 datetime last_trade_time = 0;       // Last trade time
 int trades_this_candle = 0;         // Number of trades in this candle
 datetime current_candle_time = 0;   // Current candle time
+int min_seconds_between_trades = 60; // Minimum time interval between trades (seconds)
 
 // Global variables for indicators
 int handle_rsi, handle_macd, handle_adx, handle_stoch, handle_ma_fast, handle_ma_slow, handle_bbands;
@@ -168,10 +111,6 @@ double rsi[], macd[], macd_signal[], adx[], stoch_k[], stoch_d[], ma_fast[], ma_
 // Additional moving average variables for crossovers
 int handle_ma_50, handle_ma_200;
 double ma_50[], ma_200[];
-
-// Main trend MA variables
-int handle_ma_trend;      // Handle for main trend MA
-double ma_trend[];        // Buffer for main trend MA values
 
 // Volume analysis variables
 int handle_volumes;
@@ -183,7 +122,12 @@ double daily_pivot, weekly_pivot, monthly_pivot;
 double daily_s1, daily_s2, daily_s3, daily_r1, daily_r2, daily_r3;
 double weekly_s1, weekly_s2, weekly_s3, weekly_r1, weekly_r2, weekly_r3;
 
-// Arrays for support and resistance levels are defined in SupportResistance.mqh
+// Arrays for support and resistance levels
+// The following arrays are defined as extern in SupportResistance.mqh
+// double support_levels[10];  // Up to 10 support levels
+// double resistance_levels[10]; // Up to 10 resistance levels
+// int support_count = 0;
+// int resistance_count = 0;
 
 // System variables
 int bars_total;
@@ -192,7 +136,14 @@ bool is_backtest = false; // Are we in backtest mode?
 int Min_Candles_For_Analysis = 100; // Minimum number of candles required for analysis
 
 // Forward declarations
-// Forward declarations removed - functions are defined in respective .mqh files
+int SafeCheckWolfeWavesBuy(MqlRates &rates[]);
+int SafeCheckWolfeWavesShort(MqlRates &rates[]);
+int SafeCheckElliottWavesBuy(MqlRates &rates[]);
+int SafeCheckElliottWavesShort(MqlRates &rates[]);
+bool SafeCheckIndicatorsBuy(MqlRates &rates[]);
+bool SafeCheckIndicatorsShort(MqlRates &rates[]);
+int SafeCheckHarmonicPatternsBuy(MqlRates &rates[]);
+int SafeCheckHarmonicPatternsShort(MqlRates &rates[]);
 bool PrepareHistoricalData();
 bool UpdateIndicatorsSafe();
 bool CheckTiltFilter(bool isBuy, MqlRates &rates[]);
@@ -222,6 +173,9 @@ ENUM_TIMEFRAMES PP_Timeframe;  // For PivotPoints module
 ENUM_TIMEFRAMES WW_Timeframe;  // For WolfeWaves module
 
 // Array for allowed trading days in TimeAnalysis module 
+// Commented out to avoid conflict
+// int allowed_days[];  // Days of the week allowed for trading (1-5 for Monday-Friday)
+
 // Additional variables needed
 int handle_atr;
 double atr[];
@@ -243,84 +197,15 @@ input int      Sydney_Session_End = 4;          // Sydney session end time (GMT)
 
 input double   Min_RR_Ratio = 1.5;                     // Minimum acceptable risk-reward ratio
 
+// Global variables
+datetime last_buy_time = 0;  // Last buy trade time
+datetime last_sell_time = 0;  // Last sell trade time
+
 //+------------------------------------------------------------------+
 //| Expert initialization function                                    |
 //+------------------------------------------------------------------+
 int OnInit()
 {
-   // === Input Parameter Validation ===
-
-   // Validate risk parameters
-   if(Risk_Percent <= 0 || Risk_Percent > 10) {
-      Print("ERROR: Risk_Percent must be between 0 and 10. Current value: ", Risk_Percent);
-      return INIT_PARAMETERS_INCORRECT;
-   }
-
-   if(Max_Lot_Size <= 0 || Max_Lot_Size > 100) {
-      Print("ERROR: Max_Lot_Size must be between 0 and 100. Current value: ", Max_Lot_Size);
-      return INIT_PARAMETERS_INCORRECT;
-   }
-
-   if(Min_Confirmations < 1 || Min_Confirmations > 50) {
-      Print("ERROR: Min_Confirmations must be between 1 and 50. Current value: ", Min_Confirmations);
-      return INIT_PARAMETERS_INCORRECT;
-   }
-
-   // Validate stop loss/take profit
-   if(StopLoss_Pips < 10 || StopLoss_Pips > 1000) {
-      Print("ERROR: StopLoss_Pips must be between 10 and 1000. Current value: ", StopLoss_Pips);
-      return INIT_PARAMETERS_INCORRECT;
-   }
-
-   if(TakeProfit_Pips < 10 || TakeProfit_Pips > 2000) {
-      Print("ERROR: TakeProfit_Pips must be between 10 and 2000. Current value: ", TakeProfit_Pips);
-      return INIT_PARAMETERS_INCORRECT;
-   }
-
-   // Validate ATR multipliers
-   if(ATR_StopLoss_Multiplier <= 0 || ATR_StopLoss_Multiplier > 10) {
-      Print("ERROR: ATR_StopLoss_Multiplier must be between 0 and 10. Current value: ", ATR_StopLoss_Multiplier);
-      return INIT_PARAMETERS_INCORRECT;
-   }
-
-   if(ATR_TakeProfit_Multiplier <= 0 || ATR_TakeProfit_Multiplier > 20) {
-      Print("ERROR: ATR_TakeProfit_Multiplier must be between 0 and 20. Current value: ", ATR_TakeProfit_Multiplier);
-      return INIT_PARAMETERS_INCORRECT;
-   }
-
-   // Validate trailing stop parameters
-   if(Use_Trailing_Stop) {
-      if(Trailing_Stop_Pips < 5 || Trailing_Stop_Pips > 500) {
-         Print("ERROR: Trailing_Stop_Pips must be between 5 and 500. Current value: ", Trailing_Stop_Pips);
-         return INIT_PARAMETERS_INCORRECT;
-      }
-
-      if(ATR_Trailing_Multiplier <= 0 || ATR_Trailing_Multiplier > 10) {
-         Print("ERROR: ATR_Trailing_Multiplier must be between 0 and 10. Current value: ", ATR_Trailing_Multiplier);
-         return INIT_PARAMETERS_INCORRECT;
-      }
-
-      if(Min_Profit_To_Trail_Pips < 0 || Min_Profit_To_Trail_Pips > 500) {
-         Print("ERROR: Min_Profit_To_Trail_Pips must be between 0 and 500. Current value: ", Min_Profit_To_Trail_Pips);
-         return INIT_PARAMETERS_INCORRECT;
-      }
-   }
-
-   // Validate at least one strategy is enabled
-   bool any_strategy_enabled = (Use_CandlePatterns || Use_ChartPatterns || Use_PriceAction ||
-                                 Use_ElliottWaves || Use_Indicators || Use_Divergence ||
-                                 Use_SupportResistance || Use_HarmonicPatterns || Use_MACrossover ||
-                                 Use_PivotPoints || Use_TimeAnalysis || Use_VolumeAnalysis ||
-                                 Use_WolfeWaves);
-
-   if(!any_strategy_enabled) {
-      Print("ERROR: At least one strategy must be enabled!");
-      return INIT_PARAMETERS_INCORRECT;
-   }
-
-   Print("Input parameters validated successfully");
-
-   // === Continue with existing initialization ===
    // Initialize historical data
    if(!PrepareHistoricalData()) {
       return INIT_FAILED;
@@ -338,17 +223,13 @@ int OnInit()
    // Additional moving averages for crossovers
    handle_ma_50 = iMA(Symbol(), Timeframe, 50, 0, MODE_SMA, PRICE_CLOSE);
    handle_ma_200 = iMA(Symbol(), Timeframe, 200, 0, MODE_SMA, PRICE_CLOSE);
-
-   // Initialize main trend MA
-   handle_ma_trend = iMA(Symbol(), Timeframe, MA_Trend_Period, 0, MODE_SMA, PRICE_CLOSE);
-
+   
    // Volume data
    handle_volumes = iVolumes(Symbol(), Timeframe, VOLUME_TICK);
-
-   if(handle_rsi == INVALID_HANDLE || handle_macd == INVALID_HANDLE || handle_adx == INVALID_HANDLE ||
-      handle_stoch == INVALID_HANDLE || handle_ma_fast == INVALID_HANDLE || handle_ma_slow == INVALID_HANDLE ||
-      handle_bbands == INVALID_HANDLE || handle_ma_50 == INVALID_HANDLE || handle_ma_200 == INVALID_HANDLE ||
-      handle_ma_trend == INVALID_HANDLE)
+   
+   if(handle_rsi == INVALID_HANDLE || handle_macd == INVALID_HANDLE || handle_adx == INVALID_HANDLE || 
+      handle_stoch == INVALID_HANDLE || handle_ma_fast == INVALID_HANDLE || handle_ma_slow == INVALID_HANDLE || 
+      handle_bbands == INVALID_HANDLE || handle_ma_50 == INVALID_HANDLE || handle_ma_200 == INVALID_HANDLE)
    {
        Print("Error creating indicator handles");
        return(INIT_FAILED);
@@ -380,6 +261,13 @@ int OnInit()
    // Initialize extern variables in SupportResistance.mqh
    // This section is no longer needed as the variables are no longer extern and have been initialized in the file
    
+   // Set other required variables for modules
+   // TP_Debug = G_Debug;  // This line is no longer needed as input variables can't be changed programmatically
+   
+   // Initialize allowed trading days for time analysis module (all days active)
+   // Commented out initialization of allowed_days as we're now using IsTradingDay() function
+   // in TimeAnalysis.mqh
+   
    // Allocate arrays
    ArraySetAsSeries(rsi, true);
    ArraySetAsSeries(macd, true);
@@ -394,7 +282,6 @@ int OnInit()
    ArraySetAsSeries(bb_lower, true);
    ArraySetAsSeries(ma_50, true);
    ArraySetAsSeries(ma_200, true);
-   ArraySetAsSeries(ma_trend, true);
    ArraySetAsSeries(hist_volumes, true);
    ArraySetAsSeries(g_volumes, true);
    
@@ -456,10 +343,7 @@ void OnDeinit(const int reason)
     IndicatorRelease(handle_ma_slow);
     IndicatorRelease(handle_bbands);
     IndicatorRelease(handle_atr);
-    IndicatorRelease(handle_ma_50);
-    IndicatorRelease(handle_ma_200);
-    IndicatorRelease(handle_ma_trend);
-
+    
     // Release MultiTimeframe resources (if needed)
     // Call the MultiTimeframe release function here if it exists
 }
@@ -595,7 +479,7 @@ void OnTick()
     datetime current_time = TimeCurrent();
     
     // If too much time has passed since the last analysis, exit early (speed optimization)
-    if(current_time - last_processed_time < Min_Tick_Processing_Interval && last_processed_time > 0 && !is_backtest) {
+    if(current_time - last_processed_time < 5 && last_processed_time > 0 && !is_backtest) {
         return;
     }
     
@@ -629,7 +513,7 @@ void OnTick()
         }
         
         // Check time interval since the last trade
-        if(current_time - last_trade_time < Min_Seconds_Between_Trades) {
+        if(current_time - last_trade_time < min_seconds_between_trades) {
             // Still not reached the allowed time interval
             return;
         }
@@ -637,10 +521,7 @@ void OnTick()
     
     // Note the last processed time
     last_processed_time = current_time;
-
-    // Manage trailing stop for existing positions (runs on every tick)
-    ManageTrailingStop();
-
+    
     // Check if volume data is available
     bool volume_data_available = (handle_volumes != INVALID_HANDLE);
     // If VolumeAnalysis is requested but no volume data is available, show a warning
@@ -652,29 +533,21 @@ void OnTick()
     MqlRates local_rates[];
     ArraySetAsSeries(local_rates, true);
     copied = CopyRates(Symbol(), Timeframe, 0, Min_Candles_For_Analysis, local_rates);
-
+    
     if(copied <= 0) {
         if(G_Debug) DebugPrint("Error retrieving candle data - Code: " + IntegerToString(GetLastError()));
         return;
     }
-
-    // Critical: Validate sufficient data was copied
-    if(copied < 10) {
-        DebugPrint("Error: Failed to copy sufficient rate data. Copied: " + IntegerToString(copied));
-        return;
-    }
-
+    
     if(copied < Min_Candles_For_Analysis && G_Debug) {
         DebugPrint("Warning: Number of candles retrieved is less than required.");
     }
-
+    
     // Check if there is enough data for initial analysis
     int min_candles = is_backtest ? 10 : 30;
     if(copied < min_candles) {
         return;
     }
-
-    if(G_Debug) DebugPrint("Successfully copied " + IntegerToString(copied) + " candles");
     
     // Update indicator data - only if needed
     if(!UpdateIndicatorsSafe()) {
@@ -896,29 +769,14 @@ void OnTick()
             buy_confirmations += elliott_buy * ElliottWaves_Weight;
             if(G_Debug) DebugPrint("Number of Elliott wave confirmations for buy: " + IntegerToString(elliott_buy));
         }
-
+        
         if(potential_sell && !enough_sell_confirmations) {
             int elliott_sell = SafeCheckElliottWavesShort(local_rates);
             sell_confirmations += elliott_sell * ElliottWaves_Weight;
             if(G_Debug) DebugPrint("Number of Elliott wave confirmations for sell: " + IntegerToString(elliott_sell));
         }
     }
-
-    // 10. Wolfe Waves (if enabled)
-    if(Use_WolfeWaves && copied >= 50 && (!enough_buy_confirmations || !enough_sell_confirmations)) {
-        if(potential_buy && !enough_buy_confirmations) {
-            int wolfe_buy = SafeCheckWolfeWavesBuy(local_rates);
-            buy_confirmations += wolfe_buy * WolfeWaves_Weight;
-            if(G_Debug) DebugPrint("Number of Wolfe Wave confirmations for buy: " + IntegerToString(wolfe_buy));
-        }
-
-        if(potential_sell && !enough_sell_confirmations) {
-            int wolfe_sell = SafeCheckWolfeWavesShort(local_rates);
-            sell_confirmations += wolfe_sell * WolfeWaves_Weight;
-            if(G_Debug) DebugPrint("Number of Wolfe Wave confirmations for sell: " + IntegerToString(wolfe_sell));
-        }
-    }
-
+    
     // Print buy and sell confirmation status if debug is enabled
     if(G_Debug) {
         DebugPrint("Buy confirmations: " + IntegerToString(buy_confirmations) + 
@@ -980,23 +838,17 @@ void OnTick()
     }
     
     // Check opening new position based on confirmations
-
-    // Validate array access before using
-    if(copied < 1 || ArraySize(ma_trend) < 1) {
-        DebugPrint("Error: Insufficient data for trend check");
-        return;
-    }
-
-    // Get main trend MA value (now using pre-calculated buffer)
-    double ma_main_trend_value = ma_trend[0];  // Current MA value
+    
+    // Long moving average for determining the main trend
+    double ma_main_trend = iMA(Symbol(), PERIOD_CURRENT, MA_Trend_Period, 0, MODE_SMA, PRICE_CLOSE);
     double current_close = local_rates[copied-1].close;
-
+    
     // Now the main decision for trades
     
     // Buy signal
     if(buy_confirmations >= Min_Confirmations && !have_buy_position && potential_buy) {
         // Check main trend (if enabled)
-        if(!Use_Main_Trend_Filter || current_close > ma_main_trend_value) {
+        if(!Use_Main_Trend_Filter || current_close > ma_main_trend) {
             if(G_Debug) DebugPrint("Buy conditions confirmed. Attempting to open buy position...");
             bool result = SafeOpenBuyPosition();
             
@@ -1019,7 +871,7 @@ void OnTick()
     // Sell signal
     if(sell_confirmations >= Min_Confirmations && !have_sell_position && potential_sell) {
         // Check main trend (if enabled)
-        if(!Use_Main_Trend_Filter || current_close < ma_main_trend_value) {
+        if(!Use_Main_Trend_Filter || current_close < ma_main_trend) {
             if(G_Debug) DebugPrint("Sell conditions confirmed. Attempting to open sell position...");
             bool result = SafeOpenSellPosition();
             
@@ -1122,145 +974,8 @@ void OpenSellOrder(double lotSize, double entryPrice, double stopLoss, double ta
     if(result) {
         DebugPrint("Sell position opened successfully. Ticket: " + IntegerToString(trade.ResultOrder()));
     } else {
-        DebugPrint("Error opening sell position: " + IntegerToString(trade.ResultRetcode()) +
+        DebugPrint("Error opening sell position: " + IntegerToString(trade.ResultRetcode()) + 
                   " - " + trade.ResultRetcodeDescription());
-    }
-}
-
-//+------------------------------------------------------------------+
-//| Trailing Stop Loss Management                                     |
-//+------------------------------------------------------------------+
-void ManageTrailingStop()
-{
-    if(!Use_Trailing_Stop) return;
-
-    // Get current price information
-    double bid = SymbolInfoDouble(Symbol(), SYMBOL_BID);
-    double ask = SymbolInfoDouble(Symbol(), SYMBOL_ASK);
-    double point = SymbolInfoDouble(Symbol(), SYMBOL_POINT);
-    double pip_value = point * 10;  // Convert points to pips
-
-    // Calculate trailing distance
-    double trailing_distance = 0;
-
-    if(Use_ATR_Trailing) {
-        // Use ATR-based trailing distance
-        if(ArraySize(atr) < 1) {
-            DebugPrint("ATR data not available for trailing stop");
-            return;
-        }
-        trailing_distance = atr[0] * ATR_Trailing_Multiplier;
-    } else {
-        // Use fixed pip-based trailing distance
-        trailing_distance = Trailing_Stop_Pips * pip_value;
-    }
-
-    // Calculate minimum profit threshold
-    double min_profit_distance = Min_Profit_To_Trail_Pips * pip_value;
-
-    // Loop through all open positions
-    for(int i = 0; i < PositionsTotal(); i++) {
-        if(!position.SelectByIndex(i)) continue;
-
-        // Only manage positions for this symbol and magic number
-        if(position.Symbol() != Symbol() || position.Magic() != Magic_Number) continue;
-
-        ulong ticket = position.Ticket();
-        double position_open_price = position.PriceOpen();
-        double current_sl = position.StopLoss();
-        double current_tp = position.TakeProfit();
-        ENUM_POSITION_TYPE pos_type = position.PositionType();
-
-        double new_sl = 0;
-        bool should_modify = false;
-
-        if(pos_type == POSITION_TYPE_BUY) {
-            // BUY position trailing stop logic
-            double current_profit = bid - position_open_price;
-
-            // Check if minimum profit threshold is reached
-            if(current_profit < min_profit_distance) {
-                continue;  // Not enough profit yet to start trailing
-            }
-
-            // Check breakeven requirement
-            if(Trail_After_Breakeven && current_profit < min_profit_distance) {
-                continue;  // Wait for breakeven + minimum profit
-            }
-
-            // Calculate new stop loss (price - trailing distance)
-            new_sl = bid - trailing_distance;
-
-            // Ensure new SL is above entry price (lock in profit)
-            if(new_sl <= position_open_price) {
-                new_sl = position_open_price + (min_profit_distance * 0.5);  // Set to small profit above entry
-            }
-
-            // Only move SL up, never down
-            if(current_sl == 0 || new_sl > current_sl) {
-                // Normalize the price
-                new_sl = NormalizeDouble(new_sl, _Digits);
-                should_modify = true;
-
-                if(G_Debug) {
-                    DebugPrint("BUY Trailing Stop - Ticket: " + IntegerToString(ticket) +
-                              " | Current SL: " + DoubleToString(current_sl, _Digits) +
-                              " | New SL: " + DoubleToString(new_sl, _Digits) +
-                              " | Profit: " + DoubleToString(current_profit / pip_value, 1) + " pips");
-                }
-            }
-        }
-        else if(pos_type == POSITION_TYPE_SELL) {
-            // SELL position trailing stop logic
-            double current_profit = position_open_price - ask;
-
-            // Check if minimum profit threshold is reached
-            if(current_profit < min_profit_distance) {
-                continue;  // Not enough profit yet to start trailing
-            }
-
-            // Check breakeven requirement
-            if(Trail_After_Breakeven && current_profit < min_profit_distance) {
-                continue;  // Wait for breakeven + minimum profit
-            }
-
-            // Calculate new stop loss (price + trailing distance)
-            new_sl = ask + trailing_distance;
-
-            // Ensure new SL is below entry price (lock in profit)
-            if(new_sl >= position_open_price) {
-                new_sl = position_open_price - (min_profit_distance * 0.5);  // Set to small profit below entry
-            }
-
-            // Only move SL down, never up
-            if(current_sl == 0 || new_sl < current_sl) {
-                // Normalize the price
-                new_sl = NormalizeDouble(new_sl, _Digits);
-                should_modify = true;
-
-                if(G_Debug) {
-                    DebugPrint("SELL Trailing Stop - Ticket: " + IntegerToString(ticket) +
-                              " | Current SL: " + DoubleToString(current_sl, _Digits) +
-                              " | New SL: " + DoubleToString(new_sl, _Digits) +
-                              " | Profit: " + DoubleToString(current_profit / pip_value, 1) + " pips");
-                }
-            }
-        }
-
-        // Modify the position if needed
-        if(should_modify) {
-            trade.SetExpertMagicNumber(Magic_Number);
-
-            if(trade.PositionModify(ticket, new_sl, current_tp)) {
-                if(G_Debug) {
-                    DebugPrint("Trailing stop updated successfully for ticket: " + IntegerToString(ticket));
-                }
-            } else {
-                DebugPrint("ERROR: Failed to update trailing stop for ticket: " + IntegerToString(ticket) +
-                          " | Error: " + IntegerToString(trade.ResultRetcode()) +
-                          " - " + trade.ResultRetcodeDescription());
-            }
-        }
     }
 }
 
@@ -1403,13 +1118,7 @@ bool UpdateIndicatorsSafe()
         DebugPrint("Failed to copy ATR data");
         return false;
     }
-
-    // Update main trend MA
-    if(CopyBuffer(handle_ma_trend, 0, 0, 3, ma_trend) < 3) {
-        DebugPrint("Failed to copy main trend MA data");
-        return false;
-    }
-
+    
     // Update volume data (only if handle is valid)
     if(handle_volumes != INVALID_HANDLE) {
         int copied = CopyBuffer(handle_volumes, 0, 0, 10, hist_volumes);
@@ -1515,8 +1224,8 @@ bool IsBadTradingDay()
         
         if (atr_count > 0) {
             avg_atr /= atr_count;
-            // If current ATR is above threshold, market is too volatile
-            high_volatility = (atr[0] > avg_atr * High_Volatility_Threshold);
+            // If current ATR is 50% higher than average, market is too volatile
+            high_volatility = (atr[0] > avg_atr * 1.5);
         }
     }
     
@@ -1527,9 +1236,9 @@ bool IsBadTradingDay()
     if (ArraySize(g_rates) >= 3) {
         // Calculate recent price change percentage
         double price_change_pct = MathAbs(g_rates[0].close - g_rates[2].close) / g_rates[2].close * 100.0;
-
-        // If price moved more than threshold in the last 3 candles, consider it extreme
-        extreme_movement = (price_change_pct > Extreme_Movement_Threshold);
+        
+        // If price moved more than 1.5% in the last 3 candles, consider it extreme
+        extreme_movement = (price_change_pct > 1.5);
     }
     
     // === 6. Check for NFP (Non-Farm Payroll) days ===
@@ -1566,8 +1275,8 @@ bool IsBadTradingDay()
     if (is_nfp_day) bad_day_score += 3;
     if (central_bank_day) bad_day_score += 2;
     
-    // If we have more than threshold points in our bad day score, avoid trading
-    bool is_bad_day = (bad_day_score >= Bad_Day_Score_Threshold);
+    // If we have more than 3 points in our bad day score, avoid trading
+    bool is_bad_day = (bad_day_score >= 3);
     
     if (G_Debug && is_bad_day) {
         string reason = "Bad trading day detected (score: " + IntegerToString(bad_day_score) + "):";
@@ -1614,20 +1323,7 @@ bool SafeOpenBuyPosition()
         stopLoss = current_price - (StopLoss_Pips * pip_value);
         takeProfit = current_price + (TakeProfit_Pips * pip_value);
     }
-
-    // Validate Risk/Reward Ratio
-    double risk = MathAbs(current_price - stopLoss);
-    double reward = MathAbs(takeProfit - current_price);
-    double rr_ratio = (risk > 0) ? (reward / risk) : 0;
-
-    if(rr_ratio < Min_RR_Ratio) {
-        DebugPrint("Trade rejected: R/R ratio " + DoubleToString(rr_ratio, 2) +
-                   " is below minimum " + DoubleToString(Min_RR_Ratio, 2));
-        return false;
-    }
-
-    if(G_Debug) DebugPrint("R/R Ratio: " + DoubleToString(rr_ratio, 2));
-
+    
     // Calculate position size based on risk management
     double lotSize = 0;
     
@@ -1656,10 +1352,11 @@ bool SafeOpenBuyPosition()
     
     // Open the buy order
     OpenBuyOrder(lotSize, current_price, stopLoss, takeProfit);
-
+    
     // Update trade counter
     trades_this_candle++;
-
+    last_buy_time = TimeCurrent();
+    
     return true;
 }
 
@@ -1692,20 +1389,7 @@ bool SafeOpenSellPosition()
         stopLoss = current_price + (StopLoss_Pips * pip_value);
         takeProfit = current_price - (TakeProfit_Pips * pip_value);
     }
-
-    // Validate Risk/Reward Ratio
-    double risk = MathAbs(stopLoss - current_price);
-    double reward = MathAbs(current_price - takeProfit);
-    double rr_ratio = (risk > 0) ? (reward / risk) : 0;
-
-    if(rr_ratio < Min_RR_Ratio) {
-        DebugPrint("Trade rejected: R/R ratio " + DoubleToString(rr_ratio, 2) +
-                   " is below minimum " + DoubleToString(Min_RR_Ratio, 2));
-        return false;
-    }
-
-    if(G_Debug) DebugPrint("R/R Ratio: " + DoubleToString(rr_ratio, 2));
-
+    
     // Calculate position size based on risk management
     double lotSize = 0;
     
@@ -1734,10 +1418,11 @@ bool SafeOpenSellPosition()
     
     // Open the sell order
     OpenSellOrder(lotSize, current_price, stopLoss, takeProfit);
-
+    
     // Update trade counter
     trades_this_candle++;
-
+    last_sell_time = TimeCurrent();
+    
     return true;
 }
 
