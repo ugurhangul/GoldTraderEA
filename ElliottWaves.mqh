@@ -266,11 +266,11 @@ bool IsBullishElliottWaveABC(MqlRates &rates[])
    // Check if wave C did not exceed the high of wave A
    if(rates[pointC].high >= rates[pointA].high)
         return false;
-        
-   // Check if current price is breaking below the low of wave B
-   if(rates[0].close < rates[pointB].low)
+
+   // Check if current price is breaking above the high of wave B (bullish ABC completion)
+   if(rates[0].close > rates[pointB].high)
       return true;
-      
+
    return false;
 }
 
@@ -337,10 +337,10 @@ bool IsBearishElliottWaveABC(MqlRates &rates[])
    if(rates[pointC].low <= rates[pointA].low)
         return false;
 
-   // Check if current price is breaking below the low of wave B (bearish signal)
-   if(rates[0].close < rates[pointB].low)
+   // Check if current price is breaking above the high of wave B (bearish ABC completion)
+   if(rates[0].close > rates[pointB].high)
       return true;
-      
+
    return false;
 }
 
