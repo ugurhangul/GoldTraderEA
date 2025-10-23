@@ -18,7 +18,9 @@ void ResetExternalPatternCache();
 #import
 
 // Define static variables with appropriate prefixes
-static datetime s_chp_last_pattern_check_time = 0;
+// FIX: Separate cache timestamps to prevent race condition between buy and sell checks
+static datetime s_chp_last_buy_check_time = 0;
+static datetime s_chp_last_sell_check_time = 0;
 static bool s_chp_cached_pattern_results[10] = {false, false, false, false, false, false, false, false, false, false};
 static int s_chp_cached_buy_count = -1;
 static int s_chp_cached_sell_count = -1;
@@ -96,32 +98,46 @@ bool IsDiamondTop()
     MqlRates rates[];
     ArraySetAsSeries(rates, true);
     int copied = CopyRates(Symbol(), CHP_Timeframe, 0, 50, rates);
-    
+
+    // FIX: Validate array size before accessing specific indices
     if(copied < 50) return false;
-    
+
+    int size = ArraySize(rates);
+    if(size < 50) return false;
+
     // This is a simplified Diamond Top pattern detection
     // In a real implementation, you would have a more sophisticated algorithm
-    
+
+    // FIX: Add bounds checking before accessing array elements
     // Check for a rapid rise followed by volatility and then a decline
+    if(size <= 49 || size <= 30) return false;
     bool has_uptrend = rates[49].close < rates[30].close;
     bool has_volatility = false;
-    
+
     double avg_range = 0;
-    for(int i = 20; i < 30; i++) {
+    // FIX: Ensure loop bounds are within array size
+    int avg_end = MathMin(30, size);
+    for(int i = 20; i < avg_end; i++) {
+        if(i >= size) break;
         avg_range += rates[i].high - rates[i].low;
     }
-    avg_range /= 10;
-    
+    avg_range /= (avg_end - 20);
+
     double volatility_range = 0;
-    for(int i = 10; i < 20; i++) {
+    // FIX: Ensure loop bounds are within array size
+    int vol_end = MathMin(20, size);
+    for(int i = 10; i < vol_end; i++) {
+        if(i >= size) break;
         volatility_range += rates[i].high - rates[i].low;
     }
-    volatility_range /= 10;
-    
+    volatility_range /= (vol_end - 10);
+
     has_volatility = (volatility_range > avg_range * 1.5);
-    
+
+    // FIX: Validate array access before comparison
+    if(size <= 10) return false;
     bool has_decline = rates[0].close < rates[10].close;
-    
+
     return has_uptrend && has_volatility && has_decline;
 }
 
@@ -132,16 +148,16 @@ int CheckChartPatternsBuy()
 {
     // Use cache for performance improvement
     datetime current_time = TimeCurrent();
-    
-    // If still in the same candle and cached result exists
-    if(current_time - s_chp_last_pattern_check_time < PeriodSeconds(CHP_Timeframe) && s_chp_cached_buy_count >= 0)
+
+    // FIX: Use separate buy cache timestamp to prevent race condition with sell checks
+    if(current_time - s_chp_last_buy_check_time < PeriodSeconds(CHP_Timeframe) && s_chp_cached_buy_count >= 0)
         return s_chp_cached_buy_count;
-    
+
     int confirmations = 0;
-    
+
     // Quick check for validation
     if(!ValidateChartData()) {
-        s_chp_last_pattern_check_time = current_time;
+        s_chp_last_buy_check_time = current_time;
         s_chp_cached_buy_count = 0;
         return 0;
     }
@@ -188,9 +204,9 @@ int CheckChartPatternsBuy()
     }
     
     // Store result in cache
-    s_chp_last_pattern_check_time = current_time;
+    s_chp_last_buy_check_time = current_time;
     s_chp_cached_buy_count = confirmations;
-    
+
     return confirmations;
 }
 
@@ -201,16 +217,16 @@ int CheckChartPatternsShort()
 {
     // Use cache for performance improvement
     datetime current_time = TimeCurrent();
-    
-    // If still in the same candle and cached result exists
-    if(current_time - s_chp_last_pattern_check_time < PeriodSeconds(CHP_Timeframe) && s_chp_cached_sell_count >= 0)
+
+    // FIX: Use separate sell cache timestamp to prevent race condition with buy checks
+    if(current_time - s_chp_last_sell_check_time < PeriodSeconds(CHP_Timeframe) && s_chp_cached_sell_count >= 0)
         return s_chp_cached_sell_count;
-    
+
     int confirmations = 0;
-    
+
     // Quick check for validation
     if(!ValidateChartData()) {
-        s_chp_last_pattern_check_time = current_time;
+        s_chp_last_sell_check_time = current_time;
         s_chp_cached_sell_count = 0;
         return 0;
     }
@@ -253,9 +269,9 @@ int CheckChartPatternsShort()
     }
     
     // Store result in cache
-    s_chp_last_pattern_check_time = current_time;
+    s_chp_last_sell_check_time = current_time;
     s_chp_cached_sell_count = confirmations;
-    
+
     return confirmations;
 }
 
@@ -264,13 +280,14 @@ int CheckChartPatternsShort()
 //+------------------------------------------------------------------+
 void ResetChartPatternsCache()
 {
-    s_chp_last_pattern_check_time = 0;
+    s_chp_last_buy_check_time = 0;
+    s_chp_last_sell_check_time = 0;
     s_chp_cached_buy_count = -1;
     s_chp_cached_sell_count = -1;
-    
+
     for(int i=0; i<10; i++)
         s_chp_cached_pattern_results[i] = false;
-    
+
     // Announcement to the main file that the cache has been reset.
     ResetExternalPatternCache();
-} 
+}

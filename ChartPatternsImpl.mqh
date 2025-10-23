@@ -147,9 +147,14 @@ bool IsDoubleTop(MqlRates &rates[])
 //+------------------------------------------------------------------+
 bool IsDoubleBottom(MqlRates &rates[])
 {
+    // FIX: Add cache support matching IsDoubleTop pattern
+    if(ShouldUseCache(rates, 1))
+        return s_cached_pattern_results[1] == 1;
+
     // Check array size
     int size = ArraySize(rates);
     if(size < 20) {
+        s_cached_pattern_results[1] = 0;
         DebugPrint("Error in IsDoubleBottom: Array size too small: " + IntegerToString(size));
         return false;
     }
@@ -178,8 +183,10 @@ bool IsDoubleBottom(MqlRates &rates[])
         }
     }
     
-    if(first_bottom_idx == -1)
+    if(first_bottom_idx == -1) {
+        s_cached_pattern_results[1] = 0;
         return false;
+    }
     
     // Find the middle peak after the first bottom
     for(int i = first_bottom_idx-1; i >= 10; i--)
@@ -197,8 +204,10 @@ bool IsDoubleBottom(MqlRates &rates[])
         }
     }
     
-    if(middle_peak_idx == -1)
+    if(middle_peak_idx == -1) {
+        s_cached_pattern_results[1] = 0;
         return false;
+    }
     
     // Find the second bottom after the middle peak
     for(int i = middle_peak_idx-1; i >= 3; i--)
@@ -216,10 +225,13 @@ bool IsDoubleBottom(MqlRates &rates[])
         }
     }
     
-    if(second_bottom_idx == -1)
+    if(second_bottom_idx == -1) {
+        s_cached_pattern_results[1] = 0;
         return false;
-    
+    }
+
     // Confirm Double Bottom pattern
+    bool result = false;
     if(first_bottom_idx > middle_peak_idx && middle_peak_idx > second_bottom_idx)
     {
         // Two bottoms must be approximately at the same level
@@ -227,11 +239,13 @@ bool IsDoubleBottom(MqlRates &rates[])
         {
             // Current price must be above the middle peak
             if(CheckArrayAccess(0, size, "IsDoubleBottom") && rates[0].close > middle_peak)
-                return true;
+                result = true;
         }
     }
-    
-    return false;
+
+    // Store result in cache
+    s_cached_pattern_results[1] = result ? 1 : 0;
+    return result;
 }
 
 //+------------------------------------------------------------------+
@@ -348,21 +362,35 @@ bool IsHeadAndShoulders(MqlRates &rates[])
     
     if(left_valley_idx == -1 || right_valley_idx == -1)
     return false;
-    
+
+    // FIX: Prevent division by zero and correct neckline projection
     // Calculate neckline slope
+    if(left_valley_idx == right_valley_idx) {
+        // Horizontal neckline
+        if(CheckArrayAccess(0, size, "IsHeadAndShoulders")) {
+            bool breakout = rates[0].close < left_valley;
+            bool shoulders_similar = MathAbs(left_shoulder - right_shoulder) <= 0.01 * left_shoulder;
+            return (head > left_shoulder && head > right_shoulder && shoulders_similar && breakout);
+        }
+        return false;
+    }
+
+    // Slope = (price_change) / (time_change)
+    // In AS_SERIES: right_valley_idx < left_valley_idx (right is more recent)
     double neckline_slope = (right_valley - left_valley) / (left_valley_idx - right_valley_idx);
-    
-    // Calculate neckline at current position
+
+    // FIX: Project neckline to current bar (index 0)
+    // Use left valley as reference point and project to current position
     double current_neckline = left_valley + neckline_slope * (left_valley_idx - 0);
-    
+
     // Check for bearish breakout
     bool breakout = false;
     if(CheckArrayAccess(0, size, "IsHeadAndShoulders") && rates[0].close < current_neckline)
         breakout = true;
-    
+
     // Confirm pattern: head taller than shoulders and neckline breakout
     bool shoulders_similar = MathAbs(left_shoulder - right_shoulder) <= 0.01 * left_shoulder;
-    
+
     return (head > left_shoulder && head > right_shoulder && shoulders_similar && breakout);
 }
 
@@ -476,21 +504,35 @@ bool IsInverseHeadAndShoulders(MqlRates &rates[])
     
     if(left_peak_idx == -1 || right_peak_idx == -1)
     return false;
-    
+
+    // FIX: Prevent division by zero and correct neckline projection
     // Calculate neckline slope
+    if(left_peak_idx == right_peak_idx) {
+        // Horizontal neckline
+        if(CheckArrayAccess(0, size, "IsInverseHeadAndShoulders")) {
+            bool breakout = rates[0].close > left_peak;
+            bool shoulders_similar = MathAbs(left_shoulder - right_shoulder) <= 0.01 * left_shoulder;
+            return (head < left_shoulder && head < right_shoulder && shoulders_similar && breakout);
+        }
+        return false;
+    }
+
+    // Slope = (price_change) / (time_change)
+    // In AS_SERIES: right_peak_idx < left_peak_idx (right is more recent)
     double neckline_slope = (right_peak - left_peak) / (left_peak_idx - right_peak_idx);
-    
-    // Calculate neckline at current position
+
+    // FIX: Project neckline to current bar (index 0)
+    // Use left peak as reference point and project to current position
     double current_neckline = left_peak + neckline_slope * (left_peak_idx - 0);
-    
+
     // Check for bullish breakout
     bool breakout = false;
     if(CheckArrayAccess(0, size, "IsInverseHeadAndShoulders") && rates[0].close > current_neckline)
         breakout = true;
-    
+
     // Confirm pattern: head lower than shoulders and neckline breakout
     bool shoulders_similar = MathAbs(left_shoulder - right_shoulder) <= 0.01 * left_shoulder;
-    
+
     return (head < left_shoulder && head < right_shoulder && shoulders_similar && breakout);
 }
 
@@ -541,21 +583,45 @@ bool IsBullishFlag(MqlRates &rates[])
         s_cached_pattern_results[4] = 0;
         return false;
     }
-        
-    // Check for downward correction (flag) - optimizing the loop
+
+    // FIX: Properly calculate flag pattern retracement
+    // Calculate the range of the uptrend
+    if(min_size >= size || small_size >= size) {
+        s_cached_pattern_results[4] = 0;
+        return false;
+    }
+
+    double trend_high = rates[small_size].high;
+    double trend_low = rates[min_size].low;
+    double trend_range = trend_high - trend_low;
+
+    if(trend_range <= 0) {
+        s_cached_pattern_results[4] = 0;
+        return false;
+    }
+
+    // Check for downward correction (flag) - should retrace 33-66% of the trend
     bool flag_pattern = true;
+    double flag_low = DBL_MAX;
+    double flag_high = 0;
+
     for(int i = small_size; i < mid_size && flag_pattern; i++)
     {
         if(i >= size)
             continue;
-            
-        // Correction must be within 1/3 to 2/3 of the main trend
-        if(rates[i].high > rates[small_size].high || rates[i].low < rates[min_size].low)
-        {
-            flag_pattern = false;
-        }
+
+        if(rates[i].low < flag_low) flag_low = rates[i].low;
+        if(rates[i].high > flag_high) flag_high = rates[i].high;
     }
-    
+
+    // Calculate retracement percentage
+    double retracement = (trend_high - flag_low) / trend_range;
+
+    // Flag should retrace between 33% and 66% of the trend
+    if(retracement < 0.33 || retracement > 0.66) {
+        flag_pattern = false;
+    }
+
     // Check for bullish breakout from the flag
     bool result = (flag_pattern && rates[0].close > rates[small_size].high);
     
@@ -678,23 +744,28 @@ bool IsCupAndHandle(MqlRates &rates[])
     
     if(peak2 == -1)
         return false;
-        
+
+    // FIX: Validate that there's enough space between peaks for cup formation
+    if(peak2 + 5 >= peak1 - 5) {
+        return false;
+    }
+
     // Find the middle point (cup)
     int cup_bottom = -1;
     double cup_val = 999999;
-    
+
     for(int i = peak2 + 5; i < peak1 - 5; i++)
     {
         if(i < 0 || i >= size)
             continue;
-            
+
         if(rates[i].low < cup_val)
         {
             cup_bottom = i;
             cup_val = rates[i].low;
         }
     }
-    
+
     if(cup_bottom == -1)
         return false;
         
@@ -763,27 +834,31 @@ bool IsAscendingTriangle(MqlRates &rates[])
     if(resistance_touches < 2)
         return false;
         
-    // Find support line with a positive slope
+    // FIX: Find support line with a positive slope
+    // Loop goes from i=50 (old) to i=5 (recent) in AS_SERIES mode
+    // For ascending support: recent valleys should be HIGHER than old valleys
     bool ascending_support = true;
     double prev_low = 0;
-    
+
     for(int i = 50; i > 5; i--)
     {
         if(i >= size || i+1 >= size || i-1 < 0)
             continue;
-            
+
         if(rates[i].low < rates[i+1].low && rates[i].low < rates[i-1].low)
         {
-            if(prev_low != 0 && rates[i].low <= prev_low)
+            // FIX: Since we're going from old to recent, check if current valley >= previous
+            // This ensures ascending support (higher lows)
+            if(prev_low != 0 && rates[i].low < prev_low)
             {
                 ascending_support = false;
                 break;
             }
-            
+
             prev_low = rates[i].low;
         }
     }
-    
+
     if(!ascending_support)
         return false;
         
@@ -841,27 +916,31 @@ bool IsDescendingTriangle(MqlRates &rates[])
     if(support_touches < 2)
         return false;
         
-    // Find resistance line with a negative slope
+    // FIX: Find resistance line with a negative slope
+    // Loop goes from i=50 (old) to i=5 (recent) in AS_SERIES mode
+    // For descending resistance: recent peaks should be LOWER than old peaks
     bool descending_resistance = true;
     double prev_high = 0;
-    
+
     for(int i = 50; i > 5; i--)
     {
         if(i >= size || i+1 >= size || i-1 < 0)
             continue;
-            
+
         if(rates[i].high > rates[i+1].high && rates[i].high > rates[i-1].high)
         {
-            if(prev_high != 0 && rates[i].high >= prev_high)
+            // FIX: Since we're going from old to recent, check if current peak <= previous
+            // This ensures descending resistance (lower highs)
+            if(prev_high != 0 && rates[i].high > prev_high)
             {
                 descending_resistance = false;
                 break;
             }
-            
+
             prev_high = rates[i].high;
         }
     }
-    
+
     if(!descending_resistance)
         return false;
         
@@ -931,29 +1010,36 @@ bool IsBullishWedge(MqlRates &rates[])
         s_cached_pattern_results[8] = 0;
         return false;
     }
-    
-    // Check line slopes
-    bool lower_line_descending = lows[0] < lows[1];
-    bool upper_line_descending = highs[0] < highs[1];
-    
-    if(!lower_line_descending || !upper_line_descending) {
+
+    // FIX: Bullish/Falling Wedge should have ASCENDING lines (rising lows and rising highs)
+    // In AS_SERIES mode: lows[0] is recent, lows[1] is older
+    // Ascending means: recent > older
+    bool lower_line_ascending = lows[0] > lows[1];
+    bool upper_line_ascending = highs[0] > highs[1];
+
+    if(!lower_line_ascending || !upper_line_ascending) {
         s_cached_pattern_results[8] = 0;
         return false;
     }
-    
-    // Check for convergence (upper line slope steeper than lower line)
-    double lower_slope = (lows[0] - lows[1]) / (low_indices[0] - low_indices[1]);
-    double upper_slope = (highs[0] - highs[1]) / (high_indices[0] - high_indices[1]);
-    
-    if(upper_slope >= lower_slope) {
+
+    // FIX: Correct slope calculation for AS_SERIES arrays
+    // Slope = (price_change) / (time_change)
+    // In AS_SERIES: indices[0] < indices[1], so we need to handle negative denominator
+    // Correct formula: slope = (recent_price - old_price) / (old_index - recent_index)
+    double lower_slope = (lows[0] - lows[1]) / (low_indices[1] - low_indices[0]);
+    double upper_slope = (highs[0] - highs[1]) / (high_indices[1] - high_indices[0]);
+
+    // For convergence in falling wedge: lower line slope should be steeper (more positive) than upper line
+    if(lower_slope <= upper_slope) {
         s_cached_pattern_results[8] = 0;
         return false;
     }
-    
-    // Check for breakout above
-    double current_lower_line = lows[0] + lower_slope * low_indices[0];
-    double current_upper_line = highs[0] + upper_slope * high_indices[0];
-    
+
+    // FIX: Correct trendline projection to current bar (index 0)
+    // Project from point 0 to current position: value = point_value + slope * (current_index - point_index)
+    double current_lower_line = lows[0] + lower_slope * (0 - low_indices[0]);
+    double current_upper_line = highs[0] + upper_slope * (0 - high_indices[0]);
+
     bool result = (rates[0].close > current_upper_line);
     
     // Store result in cache
@@ -1021,24 +1107,27 @@ bool IsBearishWedge(MqlRates &rates[])
     if(high_count < 2)
         return false;
     
-    // Check line slopes
+    // Check line slopes - Bearish/Rising Wedge has ascending lines (correct as-is)
     bool lower_line_ascending = lows[0] > lows[1];
     bool upper_line_ascending = highs[0] > highs[1];
-    
+
     if(!lower_line_ascending || !upper_line_ascending)
         return false;
-    
-    // Check for convergence (lower line slope steeper than upper line)
-    double lower_slope = (lows[0] - lows[1]) / (low_indices[0] - low_indices[1]);
-    double upper_slope = (highs[0] - highs[1]) / (high_indices[0] - high_indices[1]);
-    
-    if(lower_slope <= upper_slope)
+
+    // FIX: Correct slope calculation for AS_SERIES arrays
+    // Slope = (price_change) / (time_change)
+    // Correct formula: slope = (recent_price - old_price) / (old_index - recent_index)
+    double lower_slope = (lows[0] - lows[1]) / (low_indices[1] - low_indices[0]);
+    double upper_slope = (highs[0] - highs[1]) / (high_indices[1] - high_indices[0]);
+
+    // For convergence in rising wedge: upper line slope should be steeper (more positive) than lower line
+    if(upper_slope <= lower_slope)
         return false;
-    
-    // Check for breakout below
-    // Calculate current position of each line
-    double current_lower_line = lows[0] + lower_slope * low_indices[0];
-    double current_upper_line = highs[0] + upper_slope * high_indices[0];
-    
+
+    // FIX: Correct trendline projection to current bar (index 0)
+    // Project from point 0 to current position: value = point_value + slope * (current_index - point_index)
+    double current_lower_line = lows[0] + lower_slope * (0 - low_indices[0]);
+    double current_upper_line = highs[0] + upper_slope * (0 - high_indices[0]);
+
     return (rates[0].close < current_lower_line);
 } 
