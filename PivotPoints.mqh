@@ -7,6 +7,11 @@
 // Timeframe for this module
 extern ENUM_TIMEFRAMES PP_Timeframe;
 
+// Constants for pivot point calculations
+#define PIVOT_NEAR_THRESHOLD_PERCENT 0.05  // 5% of range as "near" threshold
+#define PIVOT_TOLERANCE_PIPS 50.0          // 50 pips tolerance for reversal detection
+#define PIVOT_PROXIMITY_PIPS 10.0          // 10 pips for proximity checks
+
 // Structure to hold pivot point levels
 struct PivotLevels
 {
@@ -41,23 +46,24 @@ bool CheckPivotSupportBuy(const MqlRates &rates[], int size, ENUM_TIMEFRAMES piv
 {
     if (size < 3)
         return false;
-    
+
     // Get the most recent daily candle that's completed
     MqlRates dailyRates[];
-    int copied = CopyRates(Symbol(), pivotTimeframe, 1, 2, dailyRates);
-    
-    if (copied != 2)
+    ArraySetAsSeries(dailyRates, true);
+    int copied = CopyRates(Symbol(), pivotTimeframe, 1, 1, dailyRates);
+
+    if (copied != 1)
         return false;
-    
+
     // Calculate pivot points using the previous completed daily candle
-    PivotLevels levels = CalculatePivotPoints(dailyRates[1].high, dailyRates[1].low, dailyRates[1].close);
-    
+    PivotLevels levels = CalculatePivotPoints(dailyRates[0].high, dailyRates[0].low, dailyRates[0].close);
+
     // Current price
     double currentPrice = rates[0].close;
-    
+
     // Check if price is near support levels
-    double nearThreshold = (levels.r1 - levels.s1) * 0.05; // 5% of range as "near" threshold
-    
+    double nearThreshold = (levels.r1 - levels.s1) * PIVOT_NEAR_THRESHOLD_PERCENT;
+
     // Check if price bounced from support levels
     if ((MathAbs(rates[1].low - levels.s1) < nearThreshold && currentPrice > rates[1].close) ||
         (MathAbs(rates[1].low - levels.s2) < nearThreshold && currentPrice > rates[1].close) ||
@@ -66,13 +72,13 @@ bool CheckPivotSupportBuy(const MqlRates &rates[], int size, ENUM_TIMEFRAMES piv
     {
         return true;
     }
-    
+
     // Check if price breaks above pivot after testing support
     if (rates[1].close < levels.pivot && currentPrice > levels.pivot)
     {
         return true;
     }
-    
+
     return false;
 }
 
@@ -81,23 +87,24 @@ bool CheckPivotResistanceShort(const MqlRates &rates[], int size, ENUM_TIMEFRAME
 {
     if (size < 3)
         return false;
-    
+
     // Get the most recent daily candle that's completed
     MqlRates dailyRates[];
-    int copied = CopyRates(Symbol(), pivotTimeframe, 1, 2, dailyRates);
-    
-    if (copied != 2)
+    ArraySetAsSeries(dailyRates, true);
+    int copied = CopyRates(Symbol(), pivotTimeframe, 1, 1, dailyRates);
+
+    if (copied != 1)
         return false;
-    
+
     // Calculate pivot points using the previous completed daily candle
-    PivotLevels levels = CalculatePivotPoints(dailyRates[1].high, dailyRates[1].low, dailyRates[1].close);
-    
+    PivotLevels levels = CalculatePivotPoints(dailyRates[0].high, dailyRates[0].low, dailyRates[0].close);
+
     // Current price
     double currentPrice = rates[0].close;
-    
+
     // Check if price is near resistance levels
-    double nearThreshold = (levels.r1 - levels.s1) * 0.05; // 5% of range as "near" threshold
-    
+    double nearThreshold = (levels.r1 - levels.s1) * PIVOT_NEAR_THRESHOLD_PERCENT;
+
     // Check if price bounced from resistance levels
     if ((MathAbs(rates[1].high - levels.r1) < nearThreshold && currentPrice < rates[1].close) ||
         (MathAbs(rates[1].high - levels.r2) < nearThreshold && currentPrice < rates[1].close) ||
@@ -106,13 +113,13 @@ bool CheckPivotResistanceShort(const MqlRates &rates[], int size, ENUM_TIMEFRAME
     {
         return true;
     }
-    
+
     // Check if price breaks below pivot after testing resistance
     if (rates[1].close > levels.pivot && currentPrice < levels.pivot)
     {
         return true;
     }
-    
+
     return false;
 }
 
@@ -127,16 +134,17 @@ bool CheckPivotBreakout(const MqlRates &rates[], int size, bool lookForBuy, ENUM
 {
     if (size < 5)
         return false;
-    
+
     // Get the most recent daily candle that's completed
     MqlRates dailyRates[];
-    int copied = CopyRates(Symbol(), pivotTimeframe, 1, 2, dailyRates);
-    
-    if (copied != 2)
+    ArraySetAsSeries(dailyRates, true);
+    int copied = CopyRates(Symbol(), pivotTimeframe, 1, 1, dailyRates);
+
+    if (copied != 1)
         return false;
-    
+
     // Calculate pivot points using the previous completed daily candle
-    PivotLevels levels = CalculatePivotPoints(dailyRates[1].high, dailyRates[1].low, dailyRates[1].close);
+    PivotLevels levels = CalculatePivotPoints(dailyRates[0].high, dailyRates[0].low, dailyRates[0].close);
     
     // Determine which levels to check
     double upperLevel = 0, lowerLevel = 0;
@@ -346,79 +354,85 @@ bool IsPriceBreakingPivotSupport(double current_price, double previous_price, do
 }
 
 // Check for pivot point reversal (for buy signals)
-bool IsPivotReversalBuy(double &close[], double s1, double s2, double s3, int shift = 0)
+bool IsPivotReversalBuy(const double &close[], double s1, double s2, double s3, int shift = 0)
 {
     if (ArraySize(close) < 3 + shift)
         return false;
-    
+
+    // Calculate tolerance based on pip size for gold
+    double tolerance = PIVOT_TOLERANCE_PIPS * _Point;
+
     // Check for a downward movement followed by a reversal at a support level
     return (close[shift + 2] > close[shift + 1] && // Price was going down
-            (MathAbs(close[shift + 1] - s1) <= 0.0001 || // Price reached a support level
-             MathAbs(close[shift + 1] - s2) <= 0.0001 ||
-             MathAbs(close[shift + 1] - s3) <= 0.0001) &&
+            (MathAbs(close[shift + 1] - s1) <= tolerance || // Price reached a support level
+             MathAbs(close[shift + 1] - s2) <= tolerance ||
+             MathAbs(close[shift + 1] - s3) <= tolerance) &&
             close[shift] > close[shift + 1]); // Price reversed up
 }
 
 // Check for pivot point reversal (for sell signals)
-bool IsPivotReversalSell(double &close[], double r1, double r2, double r3, int shift = 0)
+bool IsPivotReversalSell(const double &close[], double r1, double r2, double r3, int shift = 0)
 {
     if (ArraySize(close) < 3 + shift)
         return false;
-    
+
+    // Calculate tolerance based on pip size for gold
+    double tolerance = PIVOT_TOLERANCE_PIPS * _Point;
+
     // Check for an upward movement followed by a reversal at a resistance level
     return (close[shift + 2] < close[shift + 1] && // Price was going up
-            (MathAbs(close[shift + 1] - r1) <= 0.0001 || // Price reached a resistance level
-             MathAbs(close[shift + 1] - r2) <= 0.0001 ||
-             MathAbs(close[shift + 1] - r3) <= 0.0001) &&
+            (MathAbs(close[shift + 1] - r1) <= tolerance || // Price reached a resistance level
+             MathAbs(close[shift + 1] - r2) <= tolerance ||
+             MathAbs(close[shift + 1] - r3) <= tolerance) &&
             close[shift] < close[shift + 1]); // Price reversed down
 }
 
 // Check for pivot range breakout (for buy signals)
-bool IsPivotRangeBreakoutBuy(double &high[], double pivot, double r1, int shift = 0)
+bool IsPivotRangeBreakoutBuy(const double &high[], double pivot, double r1, int shift = 0)
 {
     if (ArraySize(high) < 2 + shift)
         return false;
-    
-    // Check if the price has been trading between the pivot and R1, 
+
+    // Check if the price has been trading between the pivot and R1,
     // and then breaks above R1
     return (high[shift + 1] > pivot && high[shift + 1] < r1 && high[shift] > r1);
 }
 
 // Check for pivot range breakout (for sell signals)
-bool IsPivotRangeBreakoutSell(double &low[], double pivot, double s1, int shift = 0)
+bool IsPivotRangeBreakoutSell(const double &low[], double pivot, double s1, int shift = 0)
 {
     if (ArraySize(low) < 2 + shift)
         return false;
-    
+
     // Check if the price has been trading between the pivot and S1,
     // and then breaks below S1
     return (low[shift + 1] < pivot && low[shift + 1] > s1 && low[shift] < s1);
 }
 
 // Check for pivot-based buy signal
-bool CheckPivotBuySignal(double &high[], double &low[], double &close[], double &open[], 
-                         double pivot, double r1, double r2, double r3, 
+bool CheckPivotBuySignal(const double &high[], const double &low[], const double &close[], const double &open[],
+                         double pivot, double r1, double r2, double r3,
                          double s1, double s2, double s3, int shift = 0)
 {
     // Check for various pivot-based buy signals
     bool price_bounced_from_support = IsPivotReversalBuy(close, s1, s2, s3, shift);
     bool price_broke_resistance = IsPriceBreakingPivotResistance(close[shift], close[shift + 1], r1, r2, r3);
     bool range_breakout = IsPivotRangeBreakoutBuy(high, pivot, r1, shift);
-    
+
     // Return true if any of the pivot-based buy signals are triggered
     return price_bounced_from_support || price_broke_resistance || range_breakout;
 }
 
 // Check for pivot-based sell signal
-bool CheckPivotSellSignal(double &high[], double &low[], double &close[], double &open[], 
-                         double pivot, double r1, double r2, double r3, 
+bool CheckPivotSellSignal(const double &high[], const double &low[], const double &close[], const double &open[],
+                         double pivot, double r1, double r2, double r3,
                          double s1, double s2, double s3, int shift = 0)
 {
     // Check for various pivot-based sell signals
     bool price_bounced_from_resistance = IsPivotReversalSell(close, r1, r2, r3, shift);
     bool price_broke_support = IsPriceBreakingPivotSupport(close[shift], close[shift + 1], s1, s2, s3);
     bool range_breakout = IsPivotRangeBreakoutSell(low, pivot, s1, shift);
-    
+
     // Return true if any of the pivot-based sell signals are triggered
     return price_bounced_from_resistance || price_broke_support || range_breakout;
 }
@@ -426,9 +440,9 @@ bool CheckPivotSellSignal(double &high[], double &low[], double &close[], double
 //+------------------------------------------------------------------+
 //| General pivot variables                                          |
 //+------------------------------------------------------------------+
-extern double daily_pivot, weekly_pivot, monthly_pivot;
-extern double daily_s1, daily_s2, daily_s3, daily_r1, daily_r2, daily_r3;
-extern double weekly_s1, weekly_s2, weekly_s3, weekly_r1, weekly_r2, weekly_r3;
+double daily_pivot = 0, weekly_pivot = 0, monthly_pivot = 0;
+double daily_s1 = 0, daily_s2 = 0, daily_s3 = 0, daily_r1 = 0, daily_r2 = 0, daily_r3 = 0;
+double weekly_s1 = 0, weekly_s2 = 0, weekly_s3 = 0, weekly_r1 = 0, weekly_r2 = 0, weekly_r3 = 0;
 
 // The DebugPrint function should be defined in the main file
 #import "GoldTraderEA_cleaned.mq5"
@@ -564,13 +578,13 @@ int CheckPivotPointsBuy(MqlRates &rates[])
     }
     
     // Check proximity to pivot levels
-    double pip_size = 10 * _Point; // Size of 10 pips
-    
+    double pip_size = PIVOT_PROXIMITY_PIPS * _Point;
+
     if(MathAbs(current_close - daily_pivot) < pip_size && current_close > previous_close) {
         DebugPrint("Price near daily pivot level and increasing");
         confirmations++;
     }
-    
+
     if(MathAbs(current_close - weekly_pivot) < pip_size && current_close > previous_close) {
         DebugPrint("Price near weekly pivot level and increasing");
         confirmations += 2;
@@ -634,13 +648,13 @@ int CheckPivotPointsShort(MqlRates &rates[])
     }
     
     // Check proximity to pivot levels
-    double pip_size = 10 * _Point; // Size of 10 pips
-    
+    double pip_size = PIVOT_PROXIMITY_PIPS * _Point;
+
     if(MathAbs(current_close - daily_pivot) < pip_size && current_close < previous_close) {
         DebugPrint("Price near daily pivot level and decreasing");
         confirmations++;
     }
-    
+
     if(MathAbs(current_close - weekly_pivot) < pip_size && current_close < previous_close) {
         DebugPrint("Price near weekly pivot level and decreasing");
         confirmations += 2;
