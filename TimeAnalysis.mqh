@@ -147,13 +147,17 @@ bool IsVolatileTimeOfDay(datetime current_time, double &volatility_by_hour[])
 // Check if near a high-impact news event
 bool IsNearNewsEvent(datetime current_time, datetime news_time, int minutes_before, int minutes_after)
 {
+    // Validate news_time is initialized
+    if(news_time == 0)
+        return false;
+
     // Calculate the time difference in seconds
     long time_diff = current_time - news_time;
-    
+
     // Convert minutes to seconds
     long before_seconds = minutes_before * 60;
     long after_seconds = minutes_after * 60;
-    
+
     // Check if current time is within the range around the news event
     return (time_diff >= -before_seconds && time_diff <= after_seconds);
 }
@@ -173,12 +177,16 @@ void CalculateHourlyVolatility(MqlRates &rates[], double &volatility_by_hour[])
     
     // Calculate volatility for each bar and accumulate by hour
     for (int i = 0; i < total_bars; i++) {
+        // Validate data integrity
+        if(rates[i].close <= 0 || rates[i].high < rates[i].low)
+            continue;
+
         MqlDateTime time_struct;
         TimeToStruct(rates[i].time, time_struct);
-        
+
         // Calculate high-low range as percentage of close price
         double volatility = (rates[i].high - rates[i].low) / rates[i].close * 100.0;
-        
+
         // Add to hourly accumulator
         volatility_by_hour[time_struct.hour] += volatility;
         counts[time_struct.hour]++;
@@ -207,8 +215,10 @@ bool IsTimeframeChangeBar(MqlRates &prev_rate, MqlRates &curr_rate, int timefram
             return (prev_time.day != curr_time.day);
             
         case 3: // Week change
-            return (prev_time.day_of_week < curr_time.day_of_week && 
-                    (prev_time.day_of_week == 0 || curr_time.day_of_week == 0));
+            // Week changes when we transition to Monday (day 1) from a higher day number
+            // or when the day of week decreases (wrapping from Saturday to Sunday/Monday)
+            return (curr_time.day_of_week < prev_time.day_of_week ||
+                    (prev_time.day_of_week >= 5 && curr_time.day_of_week <= 1));
             
         case 4: // Month change
             return (prev_time.mon != curr_time.mon);
@@ -271,8 +281,8 @@ bool IsTradingDay(datetime current_time)
 }
 
 // Check for time-based trading opportunities based on multiple criteria
-bool CheckTimeAnalysisBuySignal(datetime current_time, MqlRates &rates[], 
-                               bool use_session_filter, int session_start_hour, int session_start_minute, 
+bool CheckTimeAnalysisBuySignal(datetime current_time,
+                               bool use_session_filter, int session_start_hour, int session_start_minute,
                                int session_end_hour, int session_end_minute,
                                bool use_day_filter,
                                bool use_volatility_filter, double &volatility_by_hour[])
@@ -282,24 +292,24 @@ bool CheckTimeAnalysisBuySignal(datetime current_time, MqlRates &rates[],
                                                     session_end_hour, session_end_minute)) {
         return false;
     }
-    
+
     // Check day of week filter (if enabled)
     if (use_day_filter && !IsTradingDay(current_time)) {
         return false;
     }
-    
+
     // Check volatility filter (if enabled)
     if (use_volatility_filter && !IsVolatileTimeOfDay(current_time, volatility_by_hour)) {
         return false;
     }
-    
+
     // If all filters pass, return true
     return true;
 }
 
 // Similar function for sell signals
-bool CheckTimeAnalysisSellSignal(datetime current_time, MqlRates &rates[], 
-                                bool use_session_filter, int session_start_hour, int session_start_minute, 
+bool CheckTimeAnalysisSellSignal(datetime current_time,
+                                bool use_session_filter, int session_start_hour, int session_start_minute,
                                 int session_end_hour, int session_end_minute,
                                 bool use_day_filter,
                                 bool use_volatility_filter, double &volatility_by_hour[])
@@ -309,17 +319,17 @@ bool CheckTimeAnalysisSellSignal(datetime current_time, MqlRates &rates[],
                                                     session_end_hour, session_end_minute)) {
         return false;
     }
-    
+
     // Check day of week filter (if enabled)
     if (use_day_filter && !IsTradingDay(current_time)) {
         return false;
     }
-    
+
     // Check volatility filter (if enabled)
     if (use_volatility_filter && !IsVolatileTimeOfDay(current_time, volatility_by_hour)) {
         return false;
     }
-    
+
     // If all filters pass, return true
     return true;
 }
@@ -343,6 +353,13 @@ int CheckTimeAnalysis(MqlRates &rates[])
     int swing_low_indices[10];   // Indices of the last 10 troughs
     datetime swing_high_times[10]; // Times of the last 10 peaks
     datetime swing_low_times[10];  // Times of the last 10 troughs
+
+    // Initialize arrays to prevent undefined behavior
+    ArrayInitialize(swing_high_indices, 0);
+    ArrayInitialize(swing_low_indices, 0);
+    ArrayInitialize(swing_high_times, 0);
+    ArrayInitialize(swing_low_times, 0);
+
     int swing_high_count = 0;
     int swing_low_count = 0;
     
@@ -416,12 +433,14 @@ int CheckTimeAnalysis(MqlRates &rates[])
     // Fibonacci time analysis
     // Check Fibonacci time ratios between significant points
     double fib_levels[] = {0.382, 0.5, 0.618, 1.0, 1.618, 2.0, 2.618};
-    
+
     datetime current_time = rates[0].time;
+    MqlDateTime time_struct;
+    TimeToStruct(current_time, time_struct);
     int significant_points = 0;
     
     // Check if the current time is near one of the Fibonacci time points from previous significant points
-    for(int i = 0; i < swing_high_count; i++) {
+    for(int i = 0; i < swing_high_count - 1; i++) {
         long base_time_span = swing_high_times[i] - swing_high_times[i+1];
         
         for(int j = 0; j < ArraySize(fib_levels); j++) {
@@ -440,7 +459,7 @@ int CheckTimeAnalysis(MqlRates &rates[])
         if(i >= 2) break;  // Only check the last three points
     }
     
-    for(int i = 0; i < swing_low_count; i++) {
+    for(int i = 0; i < swing_low_count - 1; i++) {
         long base_time_span = swing_low_times[i] - swing_low_times[i+1];
         
         for(int j = 0; j < ArraySize(fib_levels); j++) {
@@ -463,11 +482,8 @@ int CheckTimeAnalysis(MqlRates &rates[])
         DebugPrint("A total of " + IntegerToString(significant_points) + " significant Fibonacci time points identified");
         confirmations += significant_points;
     }
-    
-    // Check important trading days and hours
-    MqlDateTime time_struct;
-    TimeToStruct(current_time, time_struct);
-    
+
+    // Check important trading days and hours (time_struct already initialized above)
     // Important trading hours
     int key_hours[] = {8, 12, 14, 16, 20};  // Important hours in GMT
     bool is_key_hour = false;

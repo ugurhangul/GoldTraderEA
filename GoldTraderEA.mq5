@@ -832,7 +832,7 @@ void OnTick()
             enough_buy_confirmations = (buy_confirmations >= Min_Confirmations);
             if(G_Debug) DebugPrint("Number of MA crossover confirmations for buy: " + IntegerToString(ma_buy));
         }
-        
+
         if(potential_sell && !enough_sell_confirmations) {
             int ma_sell = CheckMACrossoverShort(local_rates);
             sell_confirmations += ma_sell * MACrossover_Weight;
@@ -840,7 +840,24 @@ void OnTick()
             if(G_Debug) DebugPrint("Number of MA crossover confirmations for sell: " + IntegerToString(ma_sell));
         }
     }
-    
+
+    // 6b. Time analysis (if enabled)
+    if(Use_TimeAnalysis && copied >= 100 && (!enough_buy_confirmations || !enough_sell_confirmations)) {
+        int time_confirmations = CheckTimeAnalysis(local_rates);
+
+        if(potential_buy && !enough_buy_confirmations) {
+            buy_confirmations += time_confirmations * TimeAnalysis_Weight;
+            enough_buy_confirmations = (buy_confirmations >= Min_Confirmations);
+            if(G_Debug) DebugPrint("Number of time analysis confirmations for buy: " + IntegerToString(time_confirmations));
+        }
+
+        if(potential_sell && !enough_sell_confirmations) {
+            sell_confirmations += time_confirmations * TimeAnalysis_Weight;
+            enough_sell_confirmations = (sell_confirmations >= Min_Confirmations);
+            if(G_Debug) DebugPrint("Number of time analysis confirmations for sell: " + IntegerToString(time_confirmations));
+        }
+    }
+
     // Execute heavier strategies only if needed
     
     // 7. Divergences
