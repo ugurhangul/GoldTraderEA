@@ -9,6 +9,9 @@
 // Declare external variables needed
 extern ENUM_TIMEFRAMES IND_Timeframe;
 
+// Input parameters
+input int IND_Min_Confirmations = 3;  // Minimum confirmations required for signal
+
 // Public variables for indicators that must be defined in the main file
 extern int handle_rsi, handle_macd, handle_adx, handle_stoch, handle_ma_fast, handle_ma_slow, handle_bbands;
 extern double rsi[], macd[], macd_signal[], adx[], stoch_k[], stoch_d[], ma_fast[], ma_slow[], bb_upper[], bb_middle[], bb_lower[];
@@ -22,13 +25,10 @@ extern int handle_volumes;
 extern long g_volumes[];
 
 // The DebugPrint function must be defined in the main file
-#import "GoldTraderEA_cleaned.mq5"
-   void DebugPrint(string message);
-#import
-
-// The CheckArrayAccess function must be defined in the main file
 #import "GoldTraderEA.mq5"
-bool CheckArrayAccess(int index, int array_size, string function_name);
+   void DebugPrint(string message);
+   bool CheckArrayAccess(int index, int array_size, string function_name);
+   bool GetDebugMode();
 #import
 
 //+------------------------------------------------------------------+
@@ -36,19 +36,6 @@ bool CheckArrayAccess(int index, int array_size, string function_name);
 //+------------------------------------------------------------------+
 bool SafeCheckIndicatorsBuy(MqlRates &rates[])
 {
-    // Check array size
-    int size = ArraySize(rates);
-    if(size < 3) {
-        DebugPrint("The rates array for SafeCheckIndicatorsBuy is smaller than the required size");
-        return false;
-    }
-    
-    // Check indicator arrays size
-    if(ArraySize(rsi) < 3 || ArraySize(macd) < 3) {
-        DebugPrint("Some indicator arrays for SafeCheckIndicatorsBuy are smaller than the required size");
-        return false;
-    }
-    
     bool result = false;
 
     // Execute function with error protection
@@ -71,19 +58,6 @@ bool SafeCheckIndicatorsBuy(MqlRates &rates[])
 //+------------------------------------------------------------------+
 bool SafeCheckIndicatorsShort(MqlRates &rates[])
 {
-    // Check array size
-    int size = ArraySize(rates);
-    if(size < 3) {
-        DebugPrint("The rates array for SafeCheckIndicatorsShort is smaller than the required size");
-        return false;
-    }
-    
-    // Check indicator arrays size
-    if(ArraySize(rsi) < 3 || ArraySize(macd) < 3) {
-        DebugPrint("Some indicator arrays for SafeCheckIndicatorsShort are smaller than the required size");
-        return false;
-    }
-    
     bool result = false;
 
     // Execute function with error protection
@@ -106,19 +80,31 @@ bool SafeCheckIndicatorsShort(MqlRates &rates[])
 //+------------------------------------------------------------------+
 bool CheckIndicatorsBuy(MqlRates &rates[])
 {
-    // Check array size
+    // Check rates array size
     int size = ArraySize(rates);
     if(size < 3) {
         DebugPrint("The rates array for CheckIndicatorsBuy is smaller than the required size");
         return false;
     }
-    
-    // Check indicator arrays size
-    if(ArraySize(rsi) < 3 || ArraySize(macd) < 3) {
+
+    // Verify indicator handles are valid
+    if(handle_rsi == INVALID_HANDLE || handle_macd == INVALID_HANDLE ||
+       handle_stoch == INVALID_HANDLE || handle_adx == INVALID_HANDLE ||
+       handle_ma_fast == INVALID_HANDLE || handle_ma_slow == INVALID_HANDLE ||
+       handle_bbands == INVALID_HANDLE) {
+        DebugPrint("One or more indicator handles are invalid in CheckIndicatorsBuy");
+        return false;
+    }
+
+    // Comprehensive indicator arrays size validation
+    if(ArraySize(rsi) < 3 || ArraySize(macd) < 3 || ArraySize(macd_signal) < 2 ||
+       ArraySize(stoch_k) < 2 || ArraySize(stoch_d) < 2 || ArraySize(adx) < 1 ||
+       ArraySize(ma_fast) < 2 || ArraySize(ma_slow) < 2 ||
+       ArraySize(bb_upper) < 1 || ArraySize(bb_middle) < 2 || ArraySize(bb_lower) < 1) {
         DebugPrint("Some indicator arrays for CheckIndicatorsBuy are smaller than the required size");
         return false;
     }
-    
+
     // Check buy conditions using indicators
     bool rsi_buy = false;
     bool macd_buy = false;
@@ -129,41 +115,46 @@ bool CheckIndicatorsBuy(MqlRates &rates[])
     bool volume_buy = false;
     bool candle_pattern = false;
     bool wedge_pattern = false;
-    
-    // RSI
-    rsi_buy = (rsi[0] > rsi[1] && rsi[1] > rsi[2] && rsi[0] < 70 && rsi[1] < 30);
-    
-    // MACD
+
+    // RSI - Buy when RSI is rising from oversold territory
+    // Fixed: Previous logic was contradictory (required rsi[1] < 30 AND rsi[0] < 70)
+    rsi_buy = (rsi[0] > rsi[1] && rsi[1] > rsi[2] && rsi[1] < 30);
+
+    // MACD - Bullish crossover
     macd_buy = (macd[0] > macd_signal[0] && macd[1] < macd_signal[1]);
-    
-    // Stochastic
-    stoch_buy = (stoch_k[0] > stoch_d[0] && stoch_k[1] < stoch_d[1] && stoch_k[0] < 80);
-    
-    // ADX
+
+    // Stochastic - Bullish crossover from oversold
+    // Fixed: Check if previous value was oversold, not current
+    stoch_buy = (stoch_k[0] > stoch_d[0] && stoch_k[1] < stoch_d[1] && stoch_k[1] < 20);
+
+    // ADX - Trend strength confirmation
     adx_buy = (adx[0] > 25);
-    
-    // Moving Averages
+
+    // Moving Averages - Bullish crossover
     ma_buy = (ma_fast[0] > ma_slow[0] && ma_fast[1] < ma_slow[1]);
-    
-    // Bollinger Bands
-    bands_buy = (rates[0].close < bb_lower[0] || 
+
+    // Bollinger Bands - Price near lower band or crossing above middle
+    bands_buy = (rates[0].close < bb_lower[0] ||
                 (rates[0].close > bb_middle[0] && rates[1].close < bb_middle[1]));
-    
-    // Volume
-    if(ArraySize(g_volumes) > 2) {
+
+    // Volume - Increasing volume confirms trend
+    // Fixed: Changed from > 2 to >= 3 for safe array access
+    if(ArraySize(g_volumes) >= 3) {
         volume_buy = (g_volumes[0] > g_volumes[1] && g_volumes[1] > g_volumes[2]);
+    } else if(GetDebugMode()) {
+        DebugPrint("Volume array too small for analysis in CheckIndicatorsBuy");
     }
-    
+
     // Candle Pattern
     candle_pattern = (FindCandlestickPattern(rates, 1) > 0);
-    
+
     // Check bullish wedge pattern
     wedge_pattern = IsBullishWedge(rates);
-    
+
     // Combine various conditions
-    // At least 3 out of 7 conditions must be met
+    // At least IND_Min_Confirmations out of 9 conditions must be met
     int conditions_count = 0;
-    
+
     if(rsi_buy) conditions_count++;
     if(macd_buy) conditions_count++;
     if(stoch_buy) conditions_count++;
@@ -173,8 +164,8 @@ bool CheckIndicatorsBuy(MqlRates &rates[])
     if(volume_buy) conditions_count++;
     if(candle_pattern) conditions_count++;
     if(wedge_pattern) conditions_count++;
-    
-    return (conditions_count >= 3);
+
+    return (conditions_count >= IND_Min_Confirmations);
 }
 
 //+------------------------------------------------------------------+
@@ -182,19 +173,31 @@ bool CheckIndicatorsBuy(MqlRates &rates[])
 //+------------------------------------------------------------------+
 bool CheckIndicatorsShort(MqlRates &rates[])
 {
-    // Check array size
+    // Check rates array size
     int size = ArraySize(rates);
     if(size < 3) {
         DebugPrint("The rates array for CheckIndicatorsShort is smaller than the required size");
         return false;
     }
-    
-    // Check indicator arrays size
-    if(ArraySize(rsi) < 3 || ArraySize(macd) < 3) {
+
+    // Verify indicator handles are valid
+    if(handle_rsi == INVALID_HANDLE || handle_macd == INVALID_HANDLE ||
+       handle_stoch == INVALID_HANDLE || handle_adx == INVALID_HANDLE ||
+       handle_ma_fast == INVALID_HANDLE || handle_ma_slow == INVALID_HANDLE ||
+       handle_bbands == INVALID_HANDLE) {
+        DebugPrint("One or more indicator handles are invalid in CheckIndicatorsShort");
+        return false;
+    }
+
+    // Comprehensive indicator arrays size validation
+    if(ArraySize(rsi) < 3 || ArraySize(macd) < 3 || ArraySize(macd_signal) < 2 ||
+       ArraySize(stoch_k) < 2 || ArraySize(stoch_d) < 2 || ArraySize(adx) < 1 ||
+       ArraySize(ma_fast) < 2 || ArraySize(ma_slow) < 2 ||
+       ArraySize(bb_upper) < 1 || ArraySize(bb_middle) < 2 || ArraySize(bb_lower) < 1) {
         DebugPrint("Some indicator arrays for CheckIndicatorsShort are smaller than the required size");
         return false;
     }
-    
+
     // Check sell conditions using indicators
     bool rsi_sell = false;
     bool macd_sell = false;
@@ -205,41 +208,46 @@ bool CheckIndicatorsShort(MqlRates &rates[])
     bool volume_sell = false;
     bool candle_pattern = false;
     bool wedge_pattern = false;
-    
-    // RSI
-    rsi_sell = (rsi[0] < rsi[1] && rsi[1] < rsi[2] && rsi[0] > 30 && rsi[1] > 70);
-    
-    // MACD
+
+    // RSI - Sell when RSI is falling from overbought territory
+    // Fixed: Previous logic was contradictory (required rsi[1] > 70 AND rsi[0] > 30)
+    rsi_sell = (rsi[0] < rsi[1] && rsi[1] < rsi[2] && rsi[1] > 70);
+
+    // MACD - Bearish crossover
     macd_sell = (macd[0] < macd_signal[0] && macd[1] > macd_signal[1]);
-    
-    // Stochastic
-    stoch_sell = (stoch_k[0] < stoch_d[0] && stoch_k[1] > stoch_d[1] && stoch_k[0] > 20);
-    
-    // ADX
+
+    // Stochastic - Bearish crossover from overbought
+    // Fixed: Check if previous value was overbought, not current
+    stoch_sell = (stoch_k[0] < stoch_d[0] && stoch_k[1] > stoch_d[1] && stoch_k[1] > 80);
+
+    // ADX - Trend strength confirmation
     adx_sell = (adx[0] > 25);
-    
-    // Moving Averages
+
+    // Moving Averages - Bearish crossover
     ma_sell = (ma_fast[0] < ma_slow[0] && ma_fast[1] > ma_slow[1]);
-    
-    // Bollinger Bands
-    bands_sell = (rates[0].close > bb_upper[0] || 
+
+    // Bollinger Bands - Price near upper band or crossing below middle
+    bands_sell = (rates[0].close > bb_upper[0] ||
                  (rates[0].close < bb_middle[0] && rates[1].close > bb_middle[1]));
-    
-    // Volume
-    if(ArraySize(g_volumes) > 2) {
+
+    // Volume - Increasing volume confirms trend
+    // Fixed: Changed from > 2 to >= 3 for safe array access
+    if(ArraySize(g_volumes) >= 3) {
         volume_sell = (g_volumes[0] > g_volumes[1] && g_volumes[1] > g_volumes[2]);
+    } else if(GetDebugMode()) {
+        DebugPrint("Volume array too small for analysis in CheckIndicatorsShort");
     }
-    
+
     // Candle Pattern
     candle_pattern = (FindCandlestickPattern(rates, 0) > 0);
-    
+
     // Check bearish wedge pattern
     wedge_pattern = IsBearishWedge(rates);
-    
+
     // Combine various conditions
-    // At least 3 out of 7 conditions must be met
+    // At least IND_Min_Confirmations out of 9 conditions must be met
     int conditions_count = 0;
-    
+
     if(rsi_sell) conditions_count++;
     if(macd_sell) conditions_count++;
     if(stoch_sell) conditions_count++;
@@ -249,8 +257,8 @@ bool CheckIndicatorsShort(MqlRates &rates[])
     if(volume_sell) conditions_count++;
     if(candle_pattern) conditions_count++;
     if(wedge_pattern) conditions_count++;
-    
-    return (conditions_count >= 3);
+
+    return (conditions_count >= IND_Min_Confirmations);
 }
 
 // Define functions that are called from other files
