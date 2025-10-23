@@ -10,20 +10,27 @@
 extern ENUM_TIMEFRAMES HP_Timeframe;
 extern bool is_backtest;
 
-// Fibonacci constants
-#define GARTLEY_POINT_B_RETRACEMENT  0.618  // Fibonacci ratio for point B in the Gartley pattern
-#define GARTLEY_POINT_C_EXTENSION    0.382  // Fibonacci ratio for point C in the Gartley pattern
-#define GARTLEY_POINT_D_RETRACEMENT  0.786  // Fibonacci ratio for point D in the Gartley pattern
+// Fibonacci constants for Gartley pattern
+#define GARTLEY_POINT_B_RETRACEMENT  0.618  // B is 0.618 retracement of XA
+#define GARTLEY_POINT_C_MIN          0.382  // C is 0.382-0.886 retracement of AB
+#define GARTLEY_POINT_C_MAX          0.886
+#define GARTLEY_POINT_D_RETRACEMENT  0.786  // D is 0.786 retracement of XA
 
-#define BUTTERFLY_POINT_B_RETRACEMENT 0.786 // Fibonacci ratio for point B in the Butterfly pattern
-#define BUTTERFLY_POINT_C_EXTENSION   1.618 // Fibonacci ratio for point C in the Butterfly pattern
-#define BUTTERFLY_POINT_D_EXTENSION   1.272 // Fibonacci ratio for point D in the Butterfly pattern
+// Fibonacci constants for Butterfly pattern
+#define BUTTERFLY_POINT_B_RETRACEMENT 0.786 // B is 0.786 retracement of XA
+#define BUTTERFLY_POINT_C_MIN         0.382 // C is 0.382-0.886 retracement of AB
+#define BUTTERFLY_POINT_C_MAX         0.886
+#define BUTTERFLY_POINT_D_MIN         1.272 // D is 1.272 or 1.618 extension of XA
+#define BUTTERFLY_POINT_D_MAX         1.618
 
-#define BAT_POINT_B_RETRACEMENT      0.382 // Fibonacci ratio for point B in the Bat pattern (retracement of XA)
-#define BAT_POINT_C_EXTENSION        0.618 // Fibonacci ratio for point C in the Bat pattern (extension of AB, range 0.382-0.886)
-#define BAT_POINT_D_RETRACEMENT      0.886 // Fibonacci ratio for point D in the Bat pattern (retracement of XA)
+// Fibonacci constants for Bat pattern
+#define BAT_POINT_B_MIN              0.382  // B is 0.382-0.500 retracement of XA
+#define BAT_POINT_B_MAX              0.500
+#define BAT_POINT_C_MIN              0.382  // C is 0.382-0.886 retracement of AB
+#define BAT_POINT_C_MAX              0.886
+#define BAT_POINT_D_RETRACEMENT      0.886  // D is 0.886 retracement of XA
 
-#define TOLERANCE_LEVEL 0.03 // Tolerance level for pattern detection (3 percent)
+#define TOLERANCE_LEVEL 0.02 // Tolerance level for pattern detection (2 percent)
 
 // DebugPrint and CheckArrayAccess functions must be defined in the main file
 #import "GoldTraderEA_cleaned.mq5"
@@ -202,54 +209,74 @@ bool FindXABCDPoints(MqlRates &rates[], int &xIndex, int &aIndex, int &bIndex, i
 {
     int size = ArraySize(rates);
     if(size < 40) return false;
-    
-    // Find important pivot points in the last 40 candles
-    int pivotIndices[10];
-    double pivotValues[10];
+
+    // Find important pivot points in the last 40 candles with improved detection
+    int pivotIndices[20];
+    double pivotValues[20];
+    bool pivotIsLow[20];  // Track if pivot is a low or high
     int pivotCount = 0;
-    
-    // For bullish pattern, look for lows and for bearish pattern, look for highs
-    if(isBullish) {
-        // Find important lows
-        for(int i = 39; i > 1 && pivotCount < 10; i--) {
-            if(!CheckArrayAccess(i, size, "FindXABCDPoints") || 
-               !CheckArrayAccess(i+1, size, "FindXABCDPoints") || 
-               !CheckArrayAccess(i-1, size, "FindXABCDPoints"))
-                continue;
-            
-            if(rates[i].low < rates[i+1].low && rates[i].low < rates[i-1].low) {
-                pivotIndices[pivotCount] = i;
-                pivotValues[pivotCount] = rates[i].low;
-                pivotCount++;
-            }
+
+    // Improved pivot detection - look for swing highs and lows with 2-bar confirmation
+    for(int i = 39; i > 2 && pivotCount < 20; i--) {
+        if(!CheckArrayAccess(i, size, "FindXABCDPoints") ||
+           !CheckArrayAccess(i+1, size, "FindXABCDPoints") ||
+           !CheckArrayAccess(i+2, size, "FindXABCDPoints") ||
+           !CheckArrayAccess(i-1, size, "FindXABCDPoints") ||
+           !CheckArrayAccess(i-2, size, "FindXABCDPoints"))
+            continue;
+
+        // Check for swing low (lower than 2 bars on each side)
+        if(rates[i].low < rates[i+1].low && rates[i].low < rates[i+2].low &&
+           rates[i].low < rates[i-1].low && rates[i].low < rates[i-2].low) {
+            pivotIndices[pivotCount] = i;
+            pivotValues[pivotCount] = rates[i].low;
+            pivotIsLow[pivotCount] = true;
+            pivotCount++;
         }
-    } else {
-        // Find important highs
-        for(int i = 39; i > 1 && pivotCount < 10; i--) {
-            if(!CheckArrayAccess(i, size, "FindXABCDPoints") || 
-               !CheckArrayAccess(i+1, size, "FindXABCDPoints") || 
-               !CheckArrayAccess(i-1, size, "FindXABCDPoints"))
-                continue;
-            
-            if(rates[i].high > rates[i+1].high && rates[i].high > rates[i-1].high) {
-                pivotIndices[pivotCount] = i;
-                pivotValues[pivotCount] = rates[i].high;
-                pivotCount++;
-            }
+        // Check for swing high (higher than 2 bars on each side)
+        else if(rates[i].high > rates[i+1].high && rates[i].high > rates[i+2].high &&
+                rates[i].high > rates[i-1].high && rates[i].high > rates[i-2].high) {
+            pivotIndices[pivotCount] = i;
+            pivotValues[pivotCount] = rates[i].high;
+            pivotIsLow[pivotCount] = false;
+            pivotCount++;
         }
     }
-    
-    // At least 5 pivot points are needed (X, A, B, C, D)
+
+    // Need at least 5 pivot points
     if(pivotCount < 5) return false;
-    
-    // Determine XABCD points
-    dIndex = pivotIndices[0]; // most recent point
-    cIndex = pivotIndices[1];
-    bIndex = pivotIndices[2];
-    aIndex = pivotIndices[3];
-    xIndex = pivotIndices[4];
-    
-    return true;
+
+    // Find valid XABCD sequence with alternating highs and lows
+    for(int start = 0; start <= pivotCount - 5; start++) {
+        // For bullish pattern: X=low, A=high, B=low, C=high, D=low
+        // For bearish pattern: X=high, A=low, B=high, C=low, D=high
+
+        bool validSequence = true;
+        if(isBullish) {
+            // Check alternating pattern: low-high-low-high-low
+            if(!pivotIsLow[start] || pivotIsLow[start+1] || !pivotIsLow[start+2] ||
+               pivotIsLow[start+3] || !pivotIsLow[start+4]) {
+                validSequence = false;
+            }
+        } else {
+            // Check alternating pattern: high-low-high-low-high
+            if(pivotIsLow[start] || !pivotIsLow[start+1] || pivotIsLow[start+2] ||
+               !pivotIsLow[start+3] || pivotIsLow[start+4]) {
+                validSequence = false;
+            }
+        }
+
+        if(validSequence) {
+            dIndex = pivotIndices[start];     // most recent point
+            cIndex = pivotIndices[start+1];
+            bIndex = pivotIndices[start+2];
+            aIndex = pivotIndices[start+3];
+            xIndex = pivotIndices[start+4];
+            return true;
+        }
+    }
+
+    return false;
 }
 
 //+------------------------------------------------------------------+
@@ -259,104 +286,110 @@ bool IsBullishGartley(MqlRates &rates[])
 {
     int size = ArraySize(rates);
     if(size < 40) return false;
-    
+
     int xIndex, aIndex, bIndex, cIndex, dIndex;
     if(!FindXABCDPoints(rates, xIndex, aIndex, bIndex, cIndex, dIndex, true))
         return false;
-    
+
     // Extract price points
     double xPoint = rates[xIndex].low;
     double aPoint = rates[aIndex].high;
     double bPoint = rates[bIndex].low;
     double cPoint = rates[cIndex].high;
     double dPoint = rates[dIndex].low;
-    
+
     // Calculate absolute movements
     double xaMove = aPoint - xPoint;
     double abMove = aPoint - bPoint;
-    double bcMove = cPoint - bPoint;
-    double cdMove = cPoint - dPoint;
-    double xdMove = dPoint - xPoint;
-    
-    // Calculate Fibonacci ratios
-    double abRatio = abMove / xaMove;                  // Ratio of AB to XA (should be approximately 0.618)
-    double bcRatio = bcMove / abMove;                  // Ratio of BC to AB (should be approximately 0.382)
-    double cdRatio = cdMove / bcMove;                  // Ratio of CD to BC (should be approximately 0.786)
-    
+
     // Time sequence must be correct
     if(!(xIndex > aIndex && aIndex > bIndex && bIndex > cIndex && cIndex > dIndex))
         return false;
-    
+
+    // Prevent division by zero
+    if(xaMove <= 0 || abMove <= 0) return false;
+
+    // Calculate Fibonacci ratios correctly for Gartley pattern
+    // B is retracement of XA
+    double abRatio = abMove / xaMove;
+
+    // C is retracement of AB (how much AB retraced from B to C)
+    double bcRetracement = (cPoint - bPoint) / abMove;
+
+    // D is retracement of XA (how much XA retraced from X to D)
+    double xdRetracement = (aPoint - dPoint) / xaMove;
+
     // Check Fibonacci ratios with tolerance
     bool validAB = MathAbs(abRatio - GARTLEY_POINT_B_RETRACEMENT) <= TOLERANCE_LEVEL;
-    bool validBC = MathAbs(bcRatio - GARTLEY_POINT_C_EXTENSION) <= TOLERANCE_LEVEL;
-    bool validCD = MathAbs(cdRatio - GARTLEY_POINT_D_RETRACEMENT) <= TOLERANCE_LEVEL;
-    
-    // For bullish pattern, point D should be approximately at level of point X
-    bool validXD = MathAbs(dPoint - xPoint) <= TOLERANCE_LEVEL * xaMove;
-    
-    if(validAB && validBC && validCD && validXD) {
-        DebugPrint("Bullish Gartley pattern: XA=" + DoubleToString(xaMove, 2) + 
-                   ", AB Ratio=" + DoubleToString(abRatio, 3) + 
-                   ", BC Ratio=" + DoubleToString(bcRatio, 3) + 
-                   ", CD Ratio=" + DoubleToString(cdRatio, 3));
+    bool validBC = (bcRetracement >= GARTLEY_POINT_C_MIN - TOLERANCE_LEVEL) &&
+                   (bcRetracement <= GARTLEY_POINT_C_MAX + TOLERANCE_LEVEL);
+    bool validXD = MathAbs(xdRetracement - GARTLEY_POINT_D_RETRACEMENT) <= TOLERANCE_LEVEL;
+
+    if(validAB && validBC && validXD) {
+        DebugPrint("Bullish Gartley pattern: XA=" + DoubleToString(xaMove, 5) +
+                   ", AB Ratio=" + DoubleToString(abRatio, 3) +
+                   ", BC Retracement=" + DoubleToString(bcRetracement, 3) +
+                   ", XD Retracement=" + DoubleToString(xdRetracement, 3));
         return true;
     }
-    
+
     return false;
 }
 
 //+------------------------------------------------------------------+
-//| Other harmonic pattern detection functions (IsBearishGartley, IsBullishButterfly, ...) |
+//| Detect bearish Gartley pattern                                    |
 //+------------------------------------------------------------------+
 bool IsBearishGartley(MqlRates &rates[])
 {
     int size = ArraySize(rates);
     if(size < 40) return false;
-    
+
     int xIndex, aIndex, bIndex, cIndex, dIndex;
     if(!FindXABCDPoints(rates, xIndex, aIndex, bIndex, cIndex, dIndex, false))
         return false;
-    
+
     // Extract price points
     double xPoint = rates[xIndex].high;
     double aPoint = rates[aIndex].low;
     double bPoint = rates[bIndex].high;
     double cPoint = rates[cIndex].low;
     double dPoint = rates[dIndex].high;
-    
+
     // Calculate absolute movements
     double xaMove = xPoint - aPoint;
     double abMove = bPoint - aPoint;
-    double bcMove = bPoint - cPoint;
-    double cdMove = dPoint - cPoint;
-    double xdMove = xPoint - dPoint;
-    
-    // Calculate Fibonacci ratios
-    double abRatio = abMove / xaMove;                  // Ratio of AB to XA (should be approximately 0.618)
-    double bcRatio = bcMove / abMove;                  // Ratio of BC to AB (should be approximately 0.382)
-    double cdRatio = cdMove / bcMove;                  // Ratio of CD to BC (should be approximately 0.786)
-    
+
     // Time sequence must be correct
     if(!(xIndex > aIndex && aIndex > bIndex && bIndex > cIndex && cIndex > dIndex))
         return false;
-    
+
+    // Prevent division by zero
+    if(xaMove <= 0 || abMove <= 0) return false;
+
+    // Calculate Fibonacci ratios correctly for Gartley pattern
+    // B is retracement of XA
+    double abRatio = abMove / xaMove;
+
+    // C is retracement of AB (how much AB retraced from B to C)
+    double bcRetracement = (bPoint - cPoint) / abMove;
+
+    // D is retracement of XA (how much XA retraced from X to D)
+    double xdRetracement = (xPoint - dPoint) / xaMove;
+
     // Check Fibonacci ratios with tolerance
     bool validAB = MathAbs(abRatio - GARTLEY_POINT_B_RETRACEMENT) <= TOLERANCE_LEVEL;
-    bool validBC = MathAbs(bcRatio - GARTLEY_POINT_C_EXTENSION) <= TOLERANCE_LEVEL;
-    bool validCD = MathAbs(cdRatio - GARTLEY_POINT_D_RETRACEMENT) <= TOLERANCE_LEVEL;
-    
-    // For bearish pattern, point D should be approximately at level of point X
-    bool validXD = MathAbs(dPoint - xPoint) <= TOLERANCE_LEVEL * xaMove;
-    
-    if(validAB && validBC && validCD && validXD) {
-        DebugPrint("Bearish Gartley pattern: XA=" + DoubleToString(xaMove, 2) + 
-                   ", AB Ratio=" + DoubleToString(abRatio, 3) + 
-                   ", BC Ratio=" + DoubleToString(bcRatio, 3) + 
-                   ", CD Ratio=" + DoubleToString(cdRatio, 3));
+    bool validBC = (bcRetracement >= GARTLEY_POINT_C_MIN - TOLERANCE_LEVEL) &&
+                   (bcRetracement <= GARTLEY_POINT_C_MAX + TOLERANCE_LEVEL);
+    bool validXD = MathAbs(xdRetracement - GARTLEY_POINT_D_RETRACEMENT) <= TOLERANCE_LEVEL;
+
+    if(validAB && validBC && validXD) {
+        DebugPrint("Bearish Gartley pattern: XA=" + DoubleToString(xaMove, 5) +
+                   ", AB Ratio=" + DoubleToString(abRatio, 3) +
+                   ", BC Retracement=" + DoubleToString(bcRetracement, 3) +
+                   ", XD Retracement=" + DoubleToString(xdRetracement, 3));
         return true;
     }
-    
+
     return false;
 }
 
@@ -367,51 +400,59 @@ bool IsBullishButterfly(MqlRates &rates[])
 {
     int size = ArraySize(rates);
     if(size < 40) return false;
-    
+
     int xIndex, aIndex, bIndex, cIndex, dIndex;
     if(!FindXABCDPoints(rates, xIndex, aIndex, bIndex, cIndex, dIndex, true))
         return false;
-    
+
     // Extract price points
     double xPoint = rates[xIndex].low;
     double aPoint = rates[aIndex].high;
     double bPoint = rates[bIndex].low;
     double cPoint = rates[cIndex].high;
     double dPoint = rates[dIndex].low;
-    
+
     // Calculate absolute movements
     double xaMove = aPoint - xPoint;
     double abMove = aPoint - bPoint;
-    double bcMove = cPoint - bPoint;
-    double cdMove = cPoint - dPoint;
-    double xdMove = dPoint - xPoint; // Compare D with X
-    
-    // Calculate Fibonacci ratios
-    double abRatio = abMove / xaMove;                  // Ratio of AB to XA (should be approximately 0.786)
-    double bcRatio = bcMove / abMove;                  // Ratio of BC to AB (should be approximately 1.618)
-    double cdRatio = cdMove / bcMove;                  // Ratio of CD to BC (should be approximately 1.272)
-    double xdRatio = xdMove / xaMove;                  // D should be beyond X
-    
+
     // Time sequence must be correct
     if(!(xIndex > aIndex && aIndex > bIndex && bIndex > cIndex && cIndex > dIndex))
         return false;
-    
+
+    // Prevent division by zero
+    if(xaMove <= 0 || abMove <= 0) return false;
+
+    // Calculate Fibonacci ratios correctly for Butterfly pattern
+    // B is retracement of XA
+    double abRatio = abMove / xaMove;
+
+    // C is retracement of AB
+    double bcRetracement = (cPoint - bPoint) / abMove;
+
+    // D is extension of XA (beyond X)
+    double xdExtension = MathAbs(xPoint - dPoint) / xaMove;
+
     // Check Fibonacci ratios with tolerance
     bool validAB = MathAbs(abRatio - BUTTERFLY_POINT_B_RETRACEMENT) <= TOLERANCE_LEVEL;
-    bool validBC = MathAbs(bcRatio - BUTTERFLY_POINT_C_EXTENSION) <= TOLERANCE_LEVEL;
-    bool validCD = MathAbs(cdRatio - BUTTERFLY_POINT_D_EXTENSION) <= TOLERANCE_LEVEL;
-    
-    // For Butterfly pattern, point D should be beyond X
-    bool validXD = dPoint < xPoint;
-    
-    if(validAB && validBC && validCD && validXD) {
-        DebugPrint("Bullish Butterfly pattern: XA=" + DoubleToString(xaMove, 2) + 
-                   ", AB Ratio=" + DoubleToString(abRatio, 3) + 
-                   ", BC Ratio=" + DoubleToString(bcRatio, 3) + 
-                   ", CD Ratio=" + DoubleToString(cdRatio, 3));
+    bool validBC = (bcRetracement >= BUTTERFLY_POINT_C_MIN - TOLERANCE_LEVEL) &&
+                   (bcRetracement <= BUTTERFLY_POINT_C_MAX + TOLERANCE_LEVEL);
+
+    // For Butterfly, D should be 1.272 or 1.618 extension of XA
+    bool validXD = (MathAbs(xdExtension - BUTTERFLY_POINT_D_MIN) <= TOLERANCE_LEVEL) ||
+                   (MathAbs(xdExtension - BUTTERFLY_POINT_D_MAX) <= TOLERANCE_LEVEL);
+
+    // D should be below X for bullish pattern
+    bool dBeyondX = dPoint < xPoint;
+
+    if(validAB && validBC && validXD && dBeyondX) {
+        DebugPrint("Bullish Butterfly pattern: XA=" + DoubleToString(xaMove, 5) +
+                   ", AB Ratio=" + DoubleToString(abRatio, 3) +
+                   ", BC Retracement=" + DoubleToString(bcRetracement, 3) +
+                   ", XD Extension=" + DoubleToString(xdExtension, 3));
         return true;
     }
-    
+
     return false;
 }
 
@@ -422,51 +463,59 @@ bool IsBearishButterfly(MqlRates &rates[])
 {
     int size = ArraySize(rates);
     if(size < 40) return false;
-    
+
     int xIndex, aIndex, bIndex, cIndex, dIndex;
     if(!FindXABCDPoints(rates, xIndex, aIndex, bIndex, cIndex, dIndex, false))
         return false;
-    
+
     // Extract price points
     double xPoint = rates[xIndex].high;
     double aPoint = rates[aIndex].low;
     double bPoint = rates[bIndex].high;
     double cPoint = rates[cIndex].low;
     double dPoint = rates[dIndex].high;
-    
+
     // Calculate absolute movements
     double xaMove = xPoint - aPoint;
     double abMove = bPoint - aPoint;
-    double bcMove = bPoint - cPoint;
-    double cdMove = dPoint - cPoint;
-    double xdMove = dPoint - xPoint; // Compare D with X
-    
-    // Calculate Fibonacci ratios
-    double abRatio = abMove / xaMove;                  // Ratio of AB to XA (should be approximately 0.786)
-    double bcRatio = bcMove / abMove;                  // Ratio of BC to AB (should be approximately 1.618)
-    double cdRatio = cdMove / bcMove;                  // Ratio of CD to BC (should be approximately 1.272)
-    double xdRatio = xdMove / xaMove;                  // D should be beyond X
-    
+
     // Time sequence must be correct
     if(!(xIndex > aIndex && aIndex > bIndex && bIndex > cIndex && cIndex > dIndex))
         return false;
-    
+
+    // Prevent division by zero
+    if(xaMove <= 0 || abMove <= 0) return false;
+
+    // Calculate Fibonacci ratios correctly for Butterfly pattern
+    // B is retracement of XA
+    double abRatio = abMove / xaMove;
+
+    // C is retracement of AB
+    double bcRetracement = (bPoint - cPoint) / abMove;
+
+    // D is extension of XA (beyond X)
+    double xdExtension = MathAbs(dPoint - xPoint) / xaMove;
+
     // Check Fibonacci ratios with tolerance
     bool validAB = MathAbs(abRatio - BUTTERFLY_POINT_B_RETRACEMENT) <= TOLERANCE_LEVEL;
-    bool validBC = MathAbs(bcRatio - BUTTERFLY_POINT_C_EXTENSION) <= TOLERANCE_LEVEL;
-    bool validCD = MathAbs(cdRatio - BUTTERFLY_POINT_D_EXTENSION) <= TOLERANCE_LEVEL;
-    
-    // For Butterfly pattern, point D should be beyond X
-    bool validXD = dPoint > xPoint;
-    
-    if(validAB && validBC && validCD && validXD) {
-        DebugPrint("Bearish Butterfly pattern: XA=" + DoubleToString(xaMove, 2) + 
-                   ", AB Ratio=" + DoubleToString(abRatio, 3) + 
-                   ", BC Ratio=" + DoubleToString(bcRatio, 3) + 
-                   ", CD Ratio=" + DoubleToString(cdRatio, 3));
+    bool validBC = (bcRetracement >= BUTTERFLY_POINT_C_MIN - TOLERANCE_LEVEL) &&
+                   (bcRetracement <= BUTTERFLY_POINT_C_MAX + TOLERANCE_LEVEL);
+
+    // For Butterfly, D should be 1.272 or 1.618 extension of XA
+    bool validXD = (MathAbs(xdExtension - BUTTERFLY_POINT_D_MIN) <= TOLERANCE_LEVEL) ||
+                   (MathAbs(xdExtension - BUTTERFLY_POINT_D_MAX) <= TOLERANCE_LEVEL);
+
+    // D should be above X for bearish pattern
+    bool dBeyondX = dPoint > xPoint;
+
+    if(validAB && validBC && validXD && dBeyondX) {
+        DebugPrint("Bearish Butterfly pattern: XA=" + DoubleToString(xaMove, 5) +
+                   ", AB Ratio=" + DoubleToString(abRatio, 3) +
+                   ", BC Retracement=" + DoubleToString(bcRetracement, 3) +
+                   ", XD Extension=" + DoubleToString(xdExtension, 3));
         return true;
     }
-    
+
     return false;
 }
 
@@ -477,46 +526,54 @@ bool IsBullishBat(MqlRates &rates[])
 {
     int size = ArraySize(rates);
     if(size < 40) return false;
-    
+
     int xIndex, aIndex, bIndex, cIndex, dIndex;
     if(!FindXABCDPoints(rates, xIndex, aIndex, bIndex, cIndex, dIndex, true))
         return false;
-    
+
     // Extract price points
     double xPoint = rates[xIndex].low;
     double aPoint = rates[aIndex].high;
     double bPoint = rates[bIndex].low;
     double cPoint = rates[cIndex].high;
     double dPoint = rates[dIndex].low;
-    
+
     // Calculate absolute movements
     double xaMove = aPoint - xPoint;
     double abMove = aPoint - bPoint;
-    double bcMove = cPoint - bPoint;
-    double xdMove = dPoint - xPoint;
-
-    // Calculate Fibonacci ratios
-    double abRatio = abMove / xaMove;                  // Ratio of AB to XA (should be approximately 0.382)
-    double bcRatio = bcMove / abMove;                  // Ratio of BC to AB (should be approximately 0.382-0.886)
-    double xdRatio = xdMove / xaMove;                  // Ratio of XD to XA (should be approximately 0.886)
 
     // Time sequence must be correct
     if(!(xIndex > aIndex && aIndex > bIndex && bIndex > cIndex && cIndex > dIndex))
         return false;
 
+    // Prevent division by zero
+    if(xaMove <= 0 || abMove <= 0) return false;
+
+    // Calculate Fibonacci ratios correctly for Bat pattern
+    // B is retracement of XA (should be 0.382 to 0.500)
+    double abRatio = abMove / xaMove;
+
+    // C is retracement of AB (should be 0.382 to 0.886)
+    double bcRetracement = (cPoint - bPoint) / abMove;
+
+    // D is retracement of XA (should be 0.886)
+    double xdRetracement = (aPoint - dPoint) / xaMove;
+
     // Check Fibonacci ratios with tolerance
-    bool validAB = MathAbs(abRatio - BAT_POINT_B_RETRACEMENT) <= TOLERANCE_LEVEL;
-    bool validBC = MathAbs(bcRatio - BAT_POINT_C_EXTENSION) <= TOLERANCE_LEVEL;
-    bool validXD = MathAbs(xdRatio - BAT_POINT_D_RETRACEMENT) <= TOLERANCE_LEVEL;
-    
+    bool validAB = (abRatio >= BAT_POINT_B_MIN - TOLERANCE_LEVEL) &&
+                   (abRatio <= BAT_POINT_B_MAX + TOLERANCE_LEVEL);
+    bool validBC = (bcRetracement >= BAT_POINT_C_MIN - TOLERANCE_LEVEL) &&
+                   (bcRetracement <= BAT_POINT_C_MAX + TOLERANCE_LEVEL);
+    bool validXD = MathAbs(xdRetracement - BAT_POINT_D_RETRACEMENT) <= TOLERANCE_LEVEL;
+
     if(validAB && validBC && validXD) {
-        DebugPrint("Bullish Bat pattern: XA=" + DoubleToString(xaMove, 2) + 
-                   ", AB Ratio=" + DoubleToString(abRatio, 3) + 
-                   ", BC Ratio=" + DoubleToString(bcRatio, 3) + 
-                   ", CD Ratio=" + DoubleToString(cdRatio, 3));
+        DebugPrint("Bullish Bat pattern: XA=" + DoubleToString(xaMove, 5) +
+                   ", AB Ratio=" + DoubleToString(abRatio, 3) +
+                   ", BC Retracement=" + DoubleToString(bcRetracement, 3) +
+                   ", XD Retracement=" + DoubleToString(xdRetracement, 3));
         return true;
     }
-    
+
     return false;
 }
 
@@ -527,45 +584,53 @@ bool IsBearishBat(MqlRates &rates[])
 {
     int size = ArraySize(rates);
     if(size < 40) return false;
-    
+
     int xIndex, aIndex, bIndex, cIndex, dIndex;
     if(!FindXABCDPoints(rates, xIndex, aIndex, bIndex, cIndex, dIndex, false))
         return false;
-    
+
     // Extract price points
     double xPoint = rates[xIndex].high;
     double aPoint = rates[aIndex].low;
     double bPoint = rates[bIndex].high;
     double cPoint = rates[cIndex].low;
     double dPoint = rates[dIndex].high;
-    
+
     // Calculate absolute movements
     double xaMove = xPoint - aPoint;
     double abMove = bPoint - aPoint;
-    double bcMove = bPoint - cPoint;
-    double xdMove = xPoint - dPoint;
-
-    // Calculate Fibonacci ratios
-    double abRatio = abMove / xaMove;                  // Ratio of AB to XA (should be approximately 0.382)
-    double bcRatio = bcMove / abMove;                  // Ratio of BC to AB (should be approximately 0.382-0.886)
-    double xdRatio = xdMove / xaMove;                  // Ratio of XD to XA (should be approximately 0.886)
 
     // Time sequence must be correct
     if(!(xIndex > aIndex && aIndex > bIndex && bIndex > cIndex && cIndex > dIndex))
         return false;
 
+    // Prevent division by zero
+    if(xaMove <= 0 || abMove <= 0) return false;
+
+    // Calculate Fibonacci ratios correctly for Bat pattern
+    // B is retracement of XA (should be 0.382 to 0.500)
+    double abRatio = abMove / xaMove;
+
+    // C is retracement of AB (should be 0.382 to 0.886)
+    double bcRetracement = (bPoint - cPoint) / abMove;
+
+    // D is retracement of XA (should be 0.886)
+    double xdRetracement = (xPoint - dPoint) / xaMove;
+
     // Check Fibonacci ratios with tolerance
-    bool validAB = MathAbs(abRatio - BAT_POINT_B_RETRACEMENT) <= TOLERANCE_LEVEL;
-    bool validBC = MathAbs(bcRatio - BAT_POINT_C_EXTENSION) <= TOLERANCE_LEVEL;
-    bool validXD = MathAbs(xdRatio - BAT_POINT_D_RETRACEMENT) <= TOLERANCE_LEVEL;
+    bool validAB = (abRatio >= BAT_POINT_B_MIN - TOLERANCE_LEVEL) &&
+                   (abRatio <= BAT_POINT_B_MAX + TOLERANCE_LEVEL);
+    bool validBC = (bcRetracement >= BAT_POINT_C_MIN - TOLERANCE_LEVEL) &&
+                   (bcRetracement <= BAT_POINT_C_MAX + TOLERANCE_LEVEL);
+    bool validXD = MathAbs(xdRetracement - BAT_POINT_D_RETRACEMENT) <= TOLERANCE_LEVEL;
 
     if(validAB && validBC && validXD) {
-        DebugPrint("Bearish Bat pattern: XA=" + DoubleToString(xaMove, 2) + 
-                   ", AB Ratio=" + DoubleToString(abRatio, 3) + 
-                   ", BC Ratio=" + DoubleToString(bcRatio, 3) + 
-                   ", CD Ratio=" + DoubleToString(cdRatio, 3));
+        DebugPrint("Bearish Bat pattern: XA=" + DoubleToString(xaMove, 5) +
+                   ", AB Ratio=" + DoubleToString(abRatio, 3) +
+                   ", BC Retracement=" + DoubleToString(bcRetracement, 3) +
+                   ", XD Retracement=" + DoubleToString(xdRetracement, 3));
         return true;
     }
-    
+
     return false;
-} 
+}
