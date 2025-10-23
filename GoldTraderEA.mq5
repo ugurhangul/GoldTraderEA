@@ -460,6 +460,10 @@ void OnDeinit(const int reason)
     IndicatorRelease(handle_ma_200);
     IndicatorRelease(handle_ma_trend);
 
+    // Release volume indicator handle
+    if(handle_volumes != INVALID_HANDLE)
+        IndicatorRelease(handle_volumes);
+
     // Release MACrossover module resources
     DeinitMACrossover();
 
