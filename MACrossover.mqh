@@ -164,10 +164,8 @@ int CheckMACrossoverBuy(MqlRates &rates[])
     double slowMA[3];  // Slow moving average values for the last 3 candles
     double longMA[3];  // Long-term moving average values for the last 3 candles
 
-    // Set arrays as series for proper indexing
-    ArraySetAsSeries(fastMA, true);
-    ArraySetAsSeries(slowMA, true);
-    ArraySetAsSeries(longMA, true);
+    // Note: ArraySetAsSeries cannot be used on statically allocated arrays
+    // CopyBuffer already returns data in the correct order (index 0 = most recent)
 
     // Copy all 3 values at once (more efficient than loop)
     if(CopyBuffer(g_handle_fast_ma, 0, 0, 3, fastMA) != 3) {
@@ -237,10 +235,8 @@ int CheckMACrossoverShort(MqlRates &rates[])
     double slowMA[3];  // Slow moving average values for the last 3 candles
     double longMA[3];  // Long-term moving average values for the last 3 candles
 
-    // Set arrays as series for proper indexing
-    ArraySetAsSeries(fastMA, true);
-    ArraySetAsSeries(slowMA, true);
-    ArraySetAsSeries(longMA, true);
+    // Note: ArraySetAsSeries cannot be used on statically allocated arrays
+    // CopyBuffer already returns data in the correct order (index 0 = most recent)
 
     // Copy all 3 values at once (more efficient than loop)
     if(CopyBuffer(g_handle_fast_ma, 0, 0, 3, fastMA) != 3) {

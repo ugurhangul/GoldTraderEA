@@ -178,10 +178,7 @@ int handle_volumes;
 double hist_volumes[];    // For internal use with CopyBuffer
 long g_volumes[];        // To satisfy the extern in Indicators.mqh
 
-// Global variables for pivot points
-double daily_pivot, weekly_pivot, monthly_pivot;
-double daily_s1, daily_s2, daily_s3, daily_r1, daily_r2, daily_r3;
-double weekly_s1, weekly_s2, weekly_s3, weekly_r1, weekly_r2, weekly_r3;
+// Global variables for pivot points are defined in PivotPoints.mqh
 
 // Arrays for support and resistance levels are defined in SupportResistance.mqh
 

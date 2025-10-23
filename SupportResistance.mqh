@@ -41,7 +41,7 @@ void SetSRTimeframe(ENUM_TIMEFRAMES timeframe)
 //+------------------------------------------------------------------+
 //| Check if level is duplicate (too close to existing level)         |
 //+------------------------------------------------------------------+
-bool IsDuplicateLevel(double level, double levels[], int count)
+bool IsDuplicateLevel(double level, const double &levels[], int count)
 {
     double tolerance = level * SR_TOLERANCE_PERCENT;
     for(int i = 0; i < count; i++) {

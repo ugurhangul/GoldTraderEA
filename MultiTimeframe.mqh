@@ -9,9 +9,6 @@
 // Timeframe for this module
 extern ENUM_TIMEFRAMES MTF_Timeframe;
 
-// Forward declaration of DebugPrint function
-void DebugPrint(string message);
-
 // Timeframes used for analysis
 ENUM_TIMEFRAMES higher_timeframes[] = {PERIOD_H4, PERIOD_D1, PERIOD_W1};
 
@@ -107,18 +104,18 @@ int CheckMultiTimeframeBuy(MqlRates &current_tf_rates[])
         }
 
         // Get the appropriate indicator handles for this timeframe
-        int handle_ma_20, handle_ma_50;
+        int mtf_handle_ma_20, mtf_handle_ma_50;
         if(higher_timeframes[i] == PERIOD_H4) {
-            handle_ma_20 = handle_ma20_h4;
-            handle_ma_50 = handle_ma50_h4;
+            mtf_handle_ma_20 = handle_ma20_h4;
+            mtf_handle_ma_50 = handle_ma50_h4;
         }
         else if(higher_timeframes[i] == PERIOD_D1) {
-            handle_ma_20 = handle_ma20_d1;
-            handle_ma_50 = handle_ma50_d1;
+            mtf_handle_ma_20 = handle_ma20_d1;
+            mtf_handle_ma_50 = handle_ma50_d1;
         }
         else if(higher_timeframes[i] == PERIOD_W1) {
-            handle_ma_20 = handle_ma20_w1;
-            handle_ma_50 = handle_ma50_w1;
+            mtf_handle_ma_20 = handle_ma20_w1;
+            mtf_handle_ma_50 = handle_ma50_w1;
         }
         else {
             DebugPrint("Unknown timeframe: " + EnumToString(higher_timeframes[i]));
@@ -127,7 +124,7 @@ int CheckMultiTimeframeBuy(MqlRates &current_tf_rates[])
         }
 
         // Check if handles are valid
-        if(handle_ma_20 == INVALID_HANDLE || handle_ma_50 == INVALID_HANDLE) {
+        if(mtf_handle_ma_20 == INVALID_HANDLE || mtf_handle_ma_50 == INVALID_HANDLE) {
             DebugPrint("Invalid MA handles for timeframe " + EnumToString(higher_timeframes[i]));
             failed_timeframes++;
             continue;
@@ -142,8 +139,8 @@ int CheckMultiTimeframeBuy(MqlRates &current_tf_rates[])
         ArraySetAsSeries(ma_higher_50, true);
 
         // Copy MA data
-        if(CopyBuffer(handle_ma_20, 0, 0, 10, ma_higher_20) < 10 ||
-           CopyBuffer(handle_ma_50, 0, 0, 10, ma_higher_50) < 10) {
+        if(CopyBuffer(mtf_handle_ma_20, 0, 0, 10, ma_higher_20) < 10 ||
+           CopyBuffer(mtf_handle_ma_50, 0, 0, 10, ma_higher_50) < 10) {
             DebugPrint("Error copying MA data for timeframe " +
                       EnumToString(higher_timeframes[i]) +
                       ": " + IntegerToString(GetLastError()));
@@ -238,18 +235,18 @@ int CheckMultiTimeframeShort(MqlRates &current_tf_rates[])
         }
 
         // Get the appropriate indicator handles for this timeframe
-        int handle_ma_20, handle_ma_50;
+        int mtf_handle_ma_20, mtf_handle_ma_50;
         if(higher_timeframes[i] == PERIOD_H4) {
-            handle_ma_20 = handle_ma20_h4;
-            handle_ma_50 = handle_ma50_h4;
+            mtf_handle_ma_20 = handle_ma20_h4;
+            mtf_handle_ma_50 = handle_ma50_h4;
         }
         else if(higher_timeframes[i] == PERIOD_D1) {
-            handle_ma_20 = handle_ma20_d1;
-            handle_ma_50 = handle_ma50_d1;
+            mtf_handle_ma_20 = handle_ma20_d1;
+            mtf_handle_ma_50 = handle_ma50_d1;
         }
         else if(higher_timeframes[i] == PERIOD_W1) {
-            handle_ma_20 = handle_ma20_w1;
-            handle_ma_50 = handle_ma50_w1;
+            mtf_handle_ma_20 = handle_ma20_w1;
+            mtf_handle_ma_50 = handle_ma50_w1;
         }
         else {
             DebugPrint("Unknown timeframe: " + EnumToString(higher_timeframes[i]));
@@ -258,7 +255,7 @@ int CheckMultiTimeframeShort(MqlRates &current_tf_rates[])
         }
 
         // Check if handles are valid
-        if(handle_ma_20 == INVALID_HANDLE || handle_ma_50 == INVALID_HANDLE) {
+        if(mtf_handle_ma_20 == INVALID_HANDLE || mtf_handle_ma_50 == INVALID_HANDLE) {
             DebugPrint("Invalid MA handles for timeframe " + EnumToString(higher_timeframes[i]));
             failed_timeframes++;
             continue;
@@ -273,8 +270,8 @@ int CheckMultiTimeframeShort(MqlRates &current_tf_rates[])
         ArraySetAsSeries(ma_higher_50, true);
 
         // Copy MA data
-        if(CopyBuffer(handle_ma_20, 0, 0, 10, ma_higher_20) < 10 ||
-           CopyBuffer(handle_ma_50, 0, 0, 10, ma_higher_50) < 10) {
+        if(CopyBuffer(mtf_handle_ma_20, 0, 0, 10, ma_higher_20) < 10 ||
+           CopyBuffer(mtf_handle_ma_50, 0, 0, 10, ma_higher_50) < 10) {
             DebugPrint("Error copying MA data for timeframe " +
                       EnumToString(higher_timeframes[i]) +
                       ": " + IntegerToString(GetLastError()));
