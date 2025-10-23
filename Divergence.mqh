@@ -113,68 +113,67 @@ int CheckDivergenceShort(MqlRates &rates[])
 bool IsBullishRSIDivergence(MqlRates &rates[])
 {
     int size = ArraySize(rates);
-    if(size < 20) {
+    if(size < 30) {
         DebugPrint("Error in IsBullishRSIDivergence: Array size too small: " + IntegerToString(size));
         return false;
     }
-    
+
     if(ArraySize(rsi) < size) {
         DebugPrint("Error in IsBullishRSIDivergence: RSI data size too small: " + IntegerToString(ArraySize(rsi)));
         return false;
     }
-    
+
+    // Minimum separation between swing points to avoid noise
+    const int MIN_SWING_SEPARATION = 5;
+
     int low1_idx = -1, low2_idx = -1;
-    double low1_val = DBL_MAX, low2_val = DBL_MAX;
     double rsi_low1 = 0, rsi_low2 = 0;
 
     // Find two most recent significant swing lows in price and corresponding RSI values
+    // Loop from recent (index 2) to older candles (size-2)
+    // In time-series arrays: smaller index = newer, larger index = older
     for(int i = 2; i < size-2; i++)
     {
-        if(!CheckArrayAccess(i, size, "IsBullishRSIDivergence") ||
-           !CheckArrayAccess(i+1, size, "IsBullishRSIDivergence") ||
-           !CheckArrayAccess(i-1, size, "IsBullishRSIDivergence") ||
-           !CheckArrayAccess(i+2, size, "IsBullishRSIDivergence") ||
-           !CheckArrayAccess(i-2, size, "IsBullishRSIDivergence"))
-            continue;
-
         // Check if this is a swing low (lower than 2 candles on each side)
         if(rates[i].low < rates[i-1].low && rates[i].low < rates[i+1].low &&
            rates[i].low < rates[i-2].low && rates[i].low < rates[i+2].low)
         {
-            // Store the two most recent swing lows
+            // Store the first swing low found (most recent)
             if(low1_idx == -1)
             {
                 low1_idx = i;
-                low1_val = rates[i].low;
                 rsi_low1 = rsi[i];
             }
-            else if(low2_idx == -1)
+            // Store the second swing low (older) with minimum separation
+            else if(low2_idx == -1 && (i - low1_idx) >= MIN_SWING_SEPARATION)
             {
                 low2_idx = i;
-                low2_val = rates[i].low;
                 rsi_low2 = rsi[i];
                 break; // Found both swing lows
             }
         }
     }
-    
+
     // Check divergence
     if(low1_idx != -1 && low2_idx != -1)
     {
-        int earlier_idx = MathMax(low1_idx, low2_idx);
-        int later_idx = MathMin(low1_idx, low2_idx);
-        
-        double earlier_price = rates[earlier_idx].low;
-        double later_price = rates[later_idx].low;
-        
-        double earlier_rsi = earlier_idx == low1_idx ? rsi_low1 : rsi_low2;
-        double later_rsi = later_idx == low1_idx ? rsi_low1 : rsi_low2;
-        
-        // Second low price is lower but RSI is higher = bullish divergence
-        if(later_price < earlier_price && later_rsi > earlier_rsi)
+        // In time-series arrays with ArraySetAsSeries=true:
+        // Smaller index = newer (more recent), Larger index = older
+        int newer_idx = MathMin(low1_idx, low2_idx);  // Most recent swing low
+        int older_idx = MathMax(low1_idx, low2_idx);  // Earlier swing low
+
+        double newer_price = rates[newer_idx].low;
+        double older_price = rates[older_idx].low;
+
+        double newer_rsi = newer_idx == low1_idx ? rsi_low1 : rsi_low2;
+        double older_rsi = older_idx == low1_idx ? rsi_low1 : rsi_low2;
+
+        // Bullish divergence: price makes lower low, but RSI makes higher low
+        // newer_price < older_price (price declining) AND newer_rsi > older_rsi (RSI rising)
+        if(newer_price < older_price && newer_rsi > older_rsi)
             return true;
     }
-    
+
     return false;
 }
 
@@ -184,68 +183,67 @@ bool IsBullishRSIDivergence(MqlRates &rates[])
 bool IsBearishRSIDivergence(MqlRates &rates[])
 {
     int size = ArraySize(rates);
-    if(size < 20) {
+    if(size < 30) {
         DebugPrint("Error in IsBearishRSIDivergence: Array size too small: " + IntegerToString(size));
         return false;
     }
-    
+
     if(ArraySize(rsi) < size) {
         DebugPrint("Error in IsBearishRSIDivergence: RSI data size too small: " + IntegerToString(ArraySize(rsi)));
         return false;
     }
-    
+
+    // Minimum separation between swing points to avoid noise
+    const int MIN_SWING_SEPARATION = 5;
+
     int high1_idx = -1, high2_idx = -1;
-    double high1_val = -DBL_MAX, high2_val = -DBL_MAX;
     double rsi_high1 = 0, rsi_high2 = 0;
 
     // Find two most recent significant swing highs in price and corresponding RSI values
+    // Loop from recent (index 2) to older candles (size-2)
+    // In time-series arrays: smaller index = newer, larger index = older
     for(int i = 2; i < size-2; i++)
     {
-        if(!CheckArrayAccess(i, size, "IsBearishRSIDivergence") ||
-           !CheckArrayAccess(i+1, size, "IsBearishRSIDivergence") ||
-           !CheckArrayAccess(i-1, size, "IsBearishRSIDivergence") ||
-           !CheckArrayAccess(i+2, size, "IsBearishRSIDivergence") ||
-           !CheckArrayAccess(i-2, size, "IsBearishRSIDivergence"))
-            continue;
-
         // Check if this is a swing high (higher than 2 candles on each side)
         if(rates[i].high > rates[i-1].high && rates[i].high > rates[i+1].high &&
            rates[i].high > rates[i-2].high && rates[i].high > rates[i+2].high)
         {
-            // Store the two most recent swing highs
+            // Store the first swing high found (most recent)
             if(high1_idx == -1)
             {
                 high1_idx = i;
-                high1_val = rates[i].high;
                 rsi_high1 = rsi[i];
             }
-            else if(high2_idx == -1)
+            // Store the second swing high (older) with minimum separation
+            else if(high2_idx == -1 && (i - high1_idx) >= MIN_SWING_SEPARATION)
             {
                 high2_idx = i;
-                high2_val = rates[i].high;
                 rsi_high2 = rsi[i];
                 break; // Found both swing highs
             }
         }
     }
-    
+
     // Check divergence
     if(high1_idx != -1 && high2_idx != -1)
     {
-        int earlier_idx = MathMax(high1_idx, high2_idx);
-        int later_idx = MathMin(high1_idx, high2_idx);
-        
-        double earlier_price = rates[earlier_idx].high;
-        double later_price = rates[later_idx].high;
-        
-        double earlier_rsi = earlier_idx == high1_idx ? rsi_high1 : rsi_high2;
-        double later_rsi = later_idx == high1_idx ? rsi_high1 : rsi_high2;
-        
-        // Second high price is higher but RSI is lower = bearish divergence
-        if(later_price > earlier_price && later_rsi < earlier_rsi)
+        // In time-series arrays with ArraySetAsSeries=true:
+        // Smaller index = newer (more recent), Larger index = older
+        int newer_idx = MathMin(high1_idx, high2_idx);  // Most recent swing high
+        int older_idx = MathMax(high1_idx, high2_idx);  // Earlier swing high
+
+        double newer_price = rates[newer_idx].high;
+        double older_price = rates[older_idx].high;
+
+        double newer_rsi = newer_idx == high1_idx ? rsi_high1 : rsi_high2;
+        double older_rsi = older_idx == high1_idx ? rsi_high1 : rsi_high2;
+
+        // Bearish divergence: price makes higher high, but RSI makes lower high
+        // newer_price > older_price (price rising) AND newer_rsi < older_rsi (RSI falling)
+        if(newer_price > older_price && newer_rsi < older_rsi)
             return true;
     }
-    
+
     return false;
 }
 
@@ -255,31 +253,28 @@ bool IsBearishRSIDivergence(MqlRates &rates[])
 bool IsBullishMACDDivergence(MqlRates &rates[])
 {
     int size = ArraySize(rates);
-    if(size < 20) {
+    if(size < 30) {
         DebugPrint("Error in IsBullishMACDDivergence: Array size too small: " + IntegerToString(size));
         return false;
     }
-    
+
     if(ArraySize(macd) < size || ArraySize(macd_signal) < size) {
-        DebugPrint("Error in IsBullishMACDDivergence: MACD data size too small: Main=" + 
+        DebugPrint("Error in IsBullishMACDDivergence: MACD data size too small: Main=" +
                    IntegerToString(ArraySize(macd)) + ", Signal=" + IntegerToString(ArraySize(macd_signal)));
         return false;
     }
-    
+
+    // Minimum separation between swing points to avoid noise
+    const int MIN_SWING_SEPARATION = 5;
+
     int low1_idx = -1, low2_idx = -1;
-    double low1_val = DBL_MAX, low2_val = DBL_MAX;
     double macd_low1 = 0, macd_low2 = 0;
 
     // Find two most recent significant swing lows in price and corresponding MACD values
+    // Loop from recent (index 2) to older candles (size-2)
+    // In time-series arrays: smaller index = newer, larger index = older
     for(int i = 2; i < size-2; i++)
     {
-        if(!CheckArrayAccess(i, size, "IsBullishMACDDivergence") ||
-           !CheckArrayAccess(i+1, size, "IsBullishMACDDivergence") ||
-           !CheckArrayAccess(i-1, size, "IsBullishMACDDivergence") ||
-           !CheckArrayAccess(i+2, size, "IsBullishMACDDivergence") ||
-           !CheckArrayAccess(i-2, size, "IsBullishMACDDivergence"))
-            continue;
-
         // Check if this is a swing low (lower than 2 candles on each side)
         if(rates[i].low < rates[i-1].low && rates[i].low < rates[i+1].low &&
            rates[i].low < rates[i-2].low && rates[i].low < rates[i+2].low)
@@ -287,17 +282,16 @@ bool IsBullishMACDDivergence(MqlRates &rates[])
             // Verify array bounds for MACD access
             if(i >= ArraySize(macd)) continue;
 
-            // Store the two most recent swing lows
+            // Store the first swing low found (most recent)
             if(low1_idx == -1)
             {
                 low1_idx = i;
-                low1_val = rates[i].low;
                 macd_low1 = macd[i];
             }
-            else if(low2_idx == -1)
+            // Store the second swing low (older) with minimum separation
+            else if(low2_idx == -1 && (i - low1_idx) >= MIN_SWING_SEPARATION)
             {
                 low2_idx = i;
-                low2_val = rates[i].low;
                 macd_low2 = macd[i];
                 break; // Found both swing lows
             }
@@ -307,25 +301,28 @@ bool IsBullishMACDDivergence(MqlRates &rates[])
     // Check divergence
     if(low1_idx != -1 && low2_idx != -1)
     {
-        int earlier_idx = MathMax(low1_idx, low2_idx);
-        int later_idx = MathMin(low1_idx, low2_idx);
+        // In time-series arrays with ArraySetAsSeries=true:
+        // Smaller index = newer (more recent), Larger index = older
+        int newer_idx = MathMin(low1_idx, low2_idx);  // Most recent swing low
+        int older_idx = MathMax(low1_idx, low2_idx);  // Earlier swing low
 
         // Verify array bounds before access
-        if(earlier_idx >= ArraySize(rates) || later_idx >= ArraySize(rates) ||
-           earlier_idx >= ArraySize(macd) || later_idx >= ArraySize(macd))
+        if(newer_idx >= ArraySize(rates) || older_idx >= ArraySize(rates) ||
+           newer_idx >= ArraySize(macd) || older_idx >= ArraySize(macd))
             return false;
 
-        double earlier_price = rates[earlier_idx].low;
-        double later_price = rates[later_idx].low;
+        double newer_price = rates[newer_idx].low;
+        double older_price = rates[older_idx].low;
 
-        double earlier_macd = earlier_idx == low1_idx ? macd_low1 : macd_low2;
-        double later_macd = later_idx == low1_idx ? macd_low1 : macd_low2;
-        
-        // Second low price is lower but MACD is higher = bullish divergence
-        if(later_price < earlier_price && later_macd > earlier_macd)
+        double newer_macd = newer_idx == low1_idx ? macd_low1 : macd_low2;
+        double older_macd = older_idx == low1_idx ? macd_low1 : macd_low2;
+
+        // Bullish divergence: price makes lower low, but MACD makes higher low
+        // newer_price < older_price (price declining) AND newer_macd > older_macd (MACD rising)
+        if(newer_price < older_price && newer_macd > older_macd)
             return true;
     }
-    
+
     return false;
 }
 
@@ -335,31 +332,28 @@ bool IsBullishMACDDivergence(MqlRates &rates[])
 bool IsBearishMACDDivergence(MqlRates &rates[])
 {
     int size = ArraySize(rates);
-    if(size < 20) {
+    if(size < 30) {
         DebugPrint("Error in IsBearishMACDDivergence: Array size too small: " + IntegerToString(size));
         return false;
     }
-    
+
     if(ArraySize(macd) < size || ArraySize(macd_signal) < size) {
-        DebugPrint("Error in IsBearishMACDDivergence: MACD data size too small: Main=" + 
+        DebugPrint("Error in IsBearishMACDDivergence: MACD data size too small: Main=" +
                    IntegerToString(ArraySize(macd)) + ", Signal=" + IntegerToString(ArraySize(macd_signal)));
         return false;
     }
-    
+
+    // Minimum separation between swing points to avoid noise
+    const int MIN_SWING_SEPARATION = 5;
+
     int high1_idx = -1, high2_idx = -1;
-    double high1_val = -DBL_MAX, high2_val = -DBL_MAX;
     double macd_high1 = 0, macd_high2 = 0;
 
     // Find two most recent significant swing highs in price and corresponding MACD values
+    // Loop from recent (index 2) to older candles (size-2)
+    // In time-series arrays: smaller index = newer, larger index = older
     for(int i = 2; i < size-2; i++)
     {
-        if(!CheckArrayAccess(i, size, "IsBearishMACDDivergence") ||
-           !CheckArrayAccess(i+1, size, "IsBearishMACDDivergence") ||
-           !CheckArrayAccess(i-1, size, "IsBearishMACDDivergence") ||
-           !CheckArrayAccess(i+2, size, "IsBearishMACDDivergence") ||
-           !CheckArrayAccess(i-2, size, "IsBearishMACDDivergence"))
-            continue;
-
         // Check if this is a swing high (higher than 2 candles on each side)
         if(rates[i].high > rates[i-1].high && rates[i].high > rates[i+1].high &&
            rates[i].high > rates[i-2].high && rates[i].high > rates[i+2].high)
@@ -367,17 +361,16 @@ bool IsBearishMACDDivergence(MqlRates &rates[])
             // Verify array bounds for MACD access
             if(i >= ArraySize(macd)) continue;
 
-            // Store the two most recent swing highs
+            // Store the first swing high found (most recent)
             if(high1_idx == -1)
             {
                 high1_idx = i;
-                high1_val = rates[i].high;
                 macd_high1 = macd[i];
             }
-            else if(high2_idx == -1)
+            // Store the second swing high (older) with minimum separation
+            else if(high2_idx == -1 && (i - high1_idx) >= MIN_SWING_SEPARATION)
             {
                 high2_idx = i;
-                high2_val = rates[i].high;
                 macd_high2 = macd[i];
                 break; // Found both swing highs
             }
@@ -387,24 +380,27 @@ bool IsBearishMACDDivergence(MqlRates &rates[])
     // Check divergence
     if(high1_idx != -1 && high2_idx != -1)
     {
-        int earlier_idx = MathMax(high1_idx, high2_idx);
-        int later_idx = MathMin(high1_idx, high2_idx);
+        // In time-series arrays with ArraySetAsSeries=true:
+        // Smaller index = newer (more recent), Larger index = older
+        int newer_idx = MathMin(high1_idx, high2_idx);  // Most recent swing high
+        int older_idx = MathMax(high1_idx, high2_idx);  // Earlier swing high
 
         // Verify array bounds before access
-        if(earlier_idx >= ArraySize(rates) || later_idx >= ArraySize(rates) ||
-           earlier_idx >= ArraySize(macd) || later_idx >= ArraySize(macd))
+        if(newer_idx >= ArraySize(rates) || older_idx >= ArraySize(rates) ||
+           newer_idx >= ArraySize(macd) || older_idx >= ArraySize(macd))
             return false;
 
-        double earlier_price = rates[earlier_idx].high;
-        double later_price = rates[later_idx].high;
+        double newer_price = rates[newer_idx].high;
+        double older_price = rates[older_idx].high;
 
-        double earlier_macd = earlier_idx == high1_idx ? macd_high1 : macd_high2;
-        double later_macd = later_idx == high1_idx ? macd_high1 : macd_high2;
-        
-        // Second high price is higher but MACD is lower = bearish divergence
-        if(later_price > earlier_price && later_macd < earlier_macd)
+        double newer_macd = newer_idx == high1_idx ? macd_high1 : macd_high2;
+        double older_macd = older_idx == high1_idx ? macd_high1 : macd_high2;
+
+        // Bearish divergence: price makes higher high, but MACD makes lower high
+        // newer_price > older_price (price rising) AND newer_macd < older_macd (MACD falling)
+        if(newer_price > older_price && newer_macd < older_macd)
             return true;
     }
-    
+
     return false;
-} 
+}
