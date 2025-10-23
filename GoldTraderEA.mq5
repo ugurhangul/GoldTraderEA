@@ -460,6 +460,9 @@ void OnDeinit(const int reason)
     IndicatorRelease(handle_ma_200);
     IndicatorRelease(handle_ma_trend);
 
+    // Release MACrossover module resources
+    DeinitMACrossover();
+
     // Release MultiTimeframe resources (if needed)
     // Call the MultiTimeframe release function here if it exists
 }

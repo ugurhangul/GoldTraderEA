@@ -29,10 +29,90 @@ int DefaultLongMAperiod = 200;
 ENUM_MA_METHOD DefaultMAtype = MODE_EMA;
 ENUM_APPLIED_PRICE DefaultMAappliedPrice = PRICE_CLOSE;
 
-// Remove circular reference
-// #import "GoldTraderEA_cleaned.mq5"
-//    void DebugPrint(string message);
-// #import
+// Constants for support/resistance tolerance
+const double MA_SUPPORT_TOLERANCE = 0.995;      // 0.5% below MA for support detection
+const double MA_RESISTANCE_TOLERANCE = 1.005;   // 0.5% above MA for resistance detection
+const double MIN_DIVERGENCE_RATIO = 1.5;        // Minimum ratio for MA divergence detection
+const double MIN_DIVISOR_VALUE = 0.00001;       // Minimum value to avoid division by zero
+
+// Global indicator handles (to prevent memory leaks)
+int g_handle_fast_ma = INVALID_HANDLE;
+int g_handle_slow_ma = INVALID_HANDLE;
+int g_handle_long_ma = INVALID_HANDLE;
+int g_handle_ma8 = INVALID_HANDLE;
+int g_handle_ma13 = INVALID_HANDLE;
+int g_handle_ma21 = INVALID_HANDLE;
+int g_handle_ma55 = INVALID_HANDLE;
+
+//+------------------------------------------------------------------+
+//| Initialize MA Crossover module                                     |
+//+------------------------------------------------------------------+
+bool InitMACrossover()
+{
+    // Release any existing handles first
+    DeinitMACrossover();
+
+    // Create indicator handles
+    g_handle_fast_ma = iMA(Symbol(), g_MAC_Timeframe, FastMAperiod, 0, MAtype, MAappliedPrice);
+    g_handle_slow_ma = iMA(Symbol(), g_MAC_Timeframe, SlowMAperiod, 0, MAtype, MAappliedPrice);
+    g_handle_long_ma = iMA(Symbol(), g_MAC_Timeframe, LongMAperiod, 0, MAtype, MAappliedPrice);
+    g_handle_ma8 = iMA(Symbol(), g_MAC_Timeframe, 8, 0, MAtype, MAappliedPrice);
+    g_handle_ma13 = iMA(Symbol(), g_MAC_Timeframe, 13, 0, MAtype, MAappliedPrice);
+    g_handle_ma21 = iMA(Symbol(), g_MAC_Timeframe, 21, 0, MAtype, MAappliedPrice);
+    g_handle_ma55 = iMA(Symbol(), g_MAC_Timeframe, 55, 0, MAtype, MAappliedPrice);
+
+    // Validate all handles
+    if(g_handle_fast_ma == INVALID_HANDLE || g_handle_slow_ma == INVALID_HANDLE ||
+       g_handle_long_ma == INVALID_HANDLE || g_handle_ma8 == INVALID_HANDLE ||
+       g_handle_ma13 == INVALID_HANDLE || g_handle_ma21 == INVALID_HANDLE ||
+       g_handle_ma55 == INVALID_HANDLE) {
+        if(GetDebugMode())
+            DebugPrint("ERROR: Failed to create MA Crossover indicator handles. Error: " + IntegerToString(GetLastError()));
+        DeinitMACrossover();
+        return false;
+    }
+
+    if(GetDebugMode())
+        DebugPrint("MA Crossover module initialized successfully");
+
+    return true;
+}
+
+//+------------------------------------------------------------------+
+//| Deinitialize MA Crossover module                                   |
+//+------------------------------------------------------------------+
+void DeinitMACrossover()
+{
+    // Release all indicator handles
+    if(g_handle_fast_ma != INVALID_HANDLE) {
+        IndicatorRelease(g_handle_fast_ma);
+        g_handle_fast_ma = INVALID_HANDLE;
+    }
+    if(g_handle_slow_ma != INVALID_HANDLE) {
+        IndicatorRelease(g_handle_slow_ma);
+        g_handle_slow_ma = INVALID_HANDLE;
+    }
+    if(g_handle_long_ma != INVALID_HANDLE) {
+        IndicatorRelease(g_handle_long_ma);
+        g_handle_long_ma = INVALID_HANDLE;
+    }
+    if(g_handle_ma8 != INVALID_HANDLE) {
+        IndicatorRelease(g_handle_ma8);
+        g_handle_ma8 = INVALID_HANDLE;
+    }
+    if(g_handle_ma13 != INVALID_HANDLE) {
+        IndicatorRelease(g_handle_ma13);
+        g_handle_ma13 = INVALID_HANDLE;
+    }
+    if(g_handle_ma21 != INVALID_HANDLE) {
+        IndicatorRelease(g_handle_ma21);
+        g_handle_ma21 = INVALID_HANDLE;
+    }
+    if(g_handle_ma55 != INVALID_HANDLE) {
+        IndicatorRelease(g_handle_ma55);
+        g_handle_ma55 = INVALID_HANDLE;
+    }
+}
 
 //+------------------------------------------------------------------+
 //| Set the timeframe for this module                                 |
@@ -40,6 +120,8 @@ ENUM_APPLIED_PRICE DefaultMAappliedPrice = PRICE_CLOSE;
 void SetMACTimeframe(ENUM_TIMEFRAMES timeframe)
 {
     g_MAC_Timeframe = timeframe;
+    // Reinitialize handles with new timeframe
+    InitMACrossover();
 }
 
 //+------------------------------------------------------------------+
@@ -52,6 +134,8 @@ void SetMAParameters(int fastPeriod, int slowPeriod, int longPeriod, ENUM_MA_MET
     LongMAperiod = longPeriod;
     MAtype = maMethod;
     MAappliedPrice = appliedPrice;
+    // Reinitialize handles with new parameters
+    InitMACrossover();
 }
 
 //+------------------------------------------------------------------+
@@ -59,78 +143,70 @@ void SetMAParameters(int fastPeriod, int slowPeriod, int longPeriod, ENUM_MA_MET
 //+------------------------------------------------------------------+
 int CheckMACrossoverBuy(MqlRates &rates[])
 {
+    // Validate handles are initialized
+    if(g_handle_fast_ma == INVALID_HANDLE || g_handle_slow_ma == INVALID_HANDLE ||
+       g_handle_long_ma == INVALID_HANDLE) {
+        if(GetDebugMode())
+            DebugPrint("MA Crossover handles not initialized. Call InitMACrossover() first.");
+        return 0;
+    }
+
     // Ensure access to minimum required data
     int size = ArraySize(rates);
     if(size < LongMAperiod + 10) {
-        if(GetDebugMode()) 
+        if(GetDebugMode())
             DebugPrint("Not enough historical data to check moving average crossover");
         return 0;
     }
-    
+
     // Calculate moving average values
     double fastMA[3];  // Fast moving average values for the last 3 candles
     double slowMA[3];  // Slow moving average values for the last 3 candles
     double longMA[3];  // Long-term moving average values for the last 3 candles
-    
-    // Access indicators through handles
-    int handle_fast = iMA(Symbol(), g_MAC_Timeframe, FastMAperiod, 0, MAtype, MAappliedPrice);
-    int handle_slow = iMA(Symbol(), g_MAC_Timeframe, SlowMAperiod, 0, MAtype, MAappliedPrice);
-    int handle_long = iMA(Symbol(), g_MAC_Timeframe, LongMAperiod, 0, MAtype, MAappliedPrice);
-    
-    // Fast moving average
-    for(int i = 0; i < 3; i++) {
-        double temp_buf[1];
-        if(CopyBuffer(handle_fast, 0, i, 1, temp_buf) <= 0) {
-            if(GetDebugMode()) DebugPrint("Error retrieving fast moving average values");
-            return 0;
-        }
-        fastMA[i] = temp_buf[0];
+
+    // Set arrays as series for proper indexing
+    ArraySetAsSeries(fastMA, true);
+    ArraySetAsSeries(slowMA, true);
+    ArraySetAsSeries(longMA, true);
+
+    // Copy all 3 values at once (more efficient than loop)
+    if(CopyBuffer(g_handle_fast_ma, 0, 0, 3, fastMA) != 3) {
+        if(GetDebugMode())
+            DebugPrint("Error retrieving fast moving average values. Error: " + IntegerToString(GetLastError()));
+        return 0;
     }
-    
-    // Slow moving average
-    for(int i = 0; i < 3; i++) {
-        double temp_buf[1];
-        if(CopyBuffer(handle_slow, 0, i, 1, temp_buf) <= 0) {
-            if(GetDebugMode()) DebugPrint("Error retrieving slow moving average values");
-            return 0;
-        }
-        slowMA[i] = temp_buf[0];
+
+    if(CopyBuffer(g_handle_slow_ma, 0, 0, 3, slowMA) != 3) {
+        if(GetDebugMode())
+            DebugPrint("Error retrieving slow moving average values. Error: " + IntegerToString(GetLastError()));
+        return 0;
     }
-    
-    // Long-term moving average
-    for(int i = 0; i < 3; i++) {
-        double temp_buf[1];
-        if(CopyBuffer(handle_long, 0, i, 1, temp_buf) <= 0) {
-            if(GetDebugMode()) DebugPrint("Error retrieving long-term moving average values");
-            return 0;
-        }
-        longMA[i] = temp_buf[0];
+
+    if(CopyBuffer(g_handle_long_ma, 0, 0, 3, longMA) != 3) {
+        if(GetDebugMode())
+            DebugPrint("Error retrieving long-term moving average values. Error: " + IntegerToString(GetLastError()));
+        return 0;
     }
-    
+
     int confirmations = 0;
-    
+
     // Check crossover of fast and slow moving averages (golden cross)
     if(fastMA[0] > slowMA[0] && fastMA[1] <= slowMA[1]) {
         confirmations++;
         if(GetDebugMode()) DebugPrint("Golden cross of fast and slow moving averages detected");
     }
-    
+
     // Check if price is above long-term moving average (uptrend)
     if(rates[0].close > longMA[0]) {
         confirmations++;
         if(GetDebugMode()) DebugPrint("Price is above the long-term moving average (uptrend)");
     }
-    
+
     // Check if the slope of the fast moving average is upward
     if(fastMA[0] > fastMA[1] && fastMA[1] > fastMA[2]) {
         confirmations++;
         if(GetDebugMode()) DebugPrint("Slope of the fast moving average is upward");
     }
-
-    // Release indicator handles to prevent memory leak
-    IndicatorRelease(handle_fast);
-    IndicatorRelease(handle_slow);
-    IndicatorRelease(handle_long);
 
     return confirmations;
 }
@@ -140,78 +216,70 @@ int CheckMACrossoverBuy(MqlRates &rates[])
 //+------------------------------------------------------------------+
 int CheckMACrossoverShort(MqlRates &rates[])
 {
+    // Validate handles are initialized
+    if(g_handle_fast_ma == INVALID_HANDLE || g_handle_slow_ma == INVALID_HANDLE ||
+       g_handle_long_ma == INVALID_HANDLE) {
+        if(GetDebugMode())
+            DebugPrint("MA Crossover handles not initialized. Call InitMACrossover() first.");
+        return 0;
+    }
+
     // Ensure access to minimum required data
     int size = ArraySize(rates);
     if(size < LongMAperiod + 10) {
-        if(GetDebugMode()) 
+        if(GetDebugMode())
             DebugPrint("Not enough historical data to check moving average crossover");
         return 0;
     }
-    
+
     // Calculate moving average values
     double fastMA[3];  // Fast moving average values for the last 3 candles
     double slowMA[3];  // Slow moving average values for the last 3 candles
     double longMA[3];  // Long-term moving average values for the last 3 candles
-    
-    // Access indicators through handles
-    int handle_fast = iMA(Symbol(), g_MAC_Timeframe, FastMAperiod, 0, MAtype, MAappliedPrice);
-    int handle_slow = iMA(Symbol(), g_MAC_Timeframe, SlowMAperiod, 0, MAtype, MAappliedPrice);
-    int handle_long = iMA(Symbol(), g_MAC_Timeframe, LongMAperiod, 0, MAtype, MAappliedPrice);
-    
-    // Fast moving average
-    for(int i = 0; i < 3; i++) {
-        double temp_buf[1];
-        if(CopyBuffer(handle_fast, 0, i, 1, temp_buf) <= 0) {
-            if(GetDebugMode()) DebugPrint("Error retrieving fast moving average values");
-            return 0;
-        }
-        fastMA[i] = temp_buf[0];
+
+    // Set arrays as series for proper indexing
+    ArraySetAsSeries(fastMA, true);
+    ArraySetAsSeries(slowMA, true);
+    ArraySetAsSeries(longMA, true);
+
+    // Copy all 3 values at once (more efficient than loop)
+    if(CopyBuffer(g_handle_fast_ma, 0, 0, 3, fastMA) != 3) {
+        if(GetDebugMode())
+            DebugPrint("Error retrieving fast moving average values. Error: " + IntegerToString(GetLastError()));
+        return 0;
     }
-    
-    // Slow moving average
-    for(int i = 0; i < 3; i++) {
-        double temp_buf[1];
-        if(CopyBuffer(handle_slow, 0, i, 1, temp_buf) <= 0) {
-            if(GetDebugMode()) DebugPrint("Error retrieving slow moving average values");
-            return 0;
-        }
-        slowMA[i] = temp_buf[0];
+
+    if(CopyBuffer(g_handle_slow_ma, 0, 0, 3, slowMA) != 3) {
+        if(GetDebugMode())
+            DebugPrint("Error retrieving slow moving average values. Error: " + IntegerToString(GetLastError()));
+        return 0;
     }
-    
-    // Long-term moving average
-    for(int i = 0; i < 3; i++) {
-        double temp_buf[1];
-        if(CopyBuffer(handle_long, 0, i, 1, temp_buf) <= 0) {
-            if(GetDebugMode()) DebugPrint("Error retrieving long-term moving average values");
-            return 0;
-        }
-        longMA[i] = temp_buf[0];
+
+    if(CopyBuffer(g_handle_long_ma, 0, 0, 3, longMA) != 3) {
+        if(GetDebugMode())
+            DebugPrint("Error retrieving long-term moving average values. Error: " + IntegerToString(GetLastError()));
+        return 0;
     }
-    
+
     int confirmations = 0;
-    
+
     // Check crossover of fast and slow moving averages (death cross)
     if(fastMA[0] < slowMA[0] && fastMA[1] >= slowMA[1]) {
         confirmations++;
         if(GetDebugMode()) DebugPrint("Death cross of fast and slow moving averages detected");
     }
-    
+
     // Check if price is below long-term moving average (downtrend)
     if(rates[0].close < longMA[0]) {
         confirmations++;
         if(GetDebugMode()) DebugPrint("Price is below the long-term moving average (downtrend)");
     }
-    
+
     // Check if the slope of the fast moving average is downward
     if(fastMA[0] < fastMA[1] && fastMA[1] < fastMA[2]) {
         confirmations++;
         if(GetDebugMode()) DebugPrint("Slope of the fast moving average is downward");
     }
-
-    // Release indicator handles to prevent memory leak
-    IndicatorRelease(handle_fast);
-    IndicatorRelease(handle_slow);
-    IndicatorRelease(handle_long);
 
     return confirmations;
 }
@@ -221,43 +289,47 @@ int CheckMACrossoverShort(MqlRates &rates[])
 //+------------------------------------------------------------------+
 bool IsMaDivergence()
 {
-    // Retrieve moving averages with different periods
-    int handle_ma8 = iMA(Symbol(), g_MAC_Timeframe, 8, 0, MAtype, MAappliedPrice);
-    int handle_ma13 = iMA(Symbol(), g_MAC_Timeframe, 13, 0, MAtype, MAappliedPrice);
-    int handle_ma21 = iMA(Symbol(), g_MAC_Timeframe, 21, 0, MAtype, MAappliedPrice);
-    int handle_ma55 = iMA(Symbol(), g_MAC_Timeframe, 55, 0, MAtype, MAappliedPrice);
-    
-    double ma8_buf[1], ma13_buf[1], ma21_buf[1], ma55_buf[1];
-    
-    if(CopyBuffer(handle_ma8, 0, 0, 1, ma8_buf) <= 0 ||
-       CopyBuffer(handle_ma13, 0, 0, 1, ma13_buf) <= 0 ||
-       CopyBuffer(handle_ma21, 0, 0, 1, ma21_buf) <= 0 ||
-       CopyBuffer(handle_ma55, 0, 0, 1, ma55_buf) <= 0) {
-        if(GetDebugMode()) 
-            DebugPrint("Error retrieving moving average values for divergence check");
+    // Validate handles are initialized
+    if(g_handle_ma8 == INVALID_HANDLE || g_handle_ma13 == INVALID_HANDLE ||
+       g_handle_ma21 == INVALID_HANDLE || g_handle_ma55 == INVALID_HANDLE) {
+        if(GetDebugMode())
+            DebugPrint("MA Divergence handles not initialized. Call InitMACrossover() first.");
         return false;
     }
-    
+
+    double ma8_buf[1], ma13_buf[1], ma21_buf[1], ma55_buf[1];
+
+    // Copy buffer values
+    if(CopyBuffer(g_handle_ma8, 0, 0, 1, ma8_buf) <= 0 ||
+       CopyBuffer(g_handle_ma13, 0, 0, 1, ma13_buf) <= 0 ||
+       CopyBuffer(g_handle_ma21, 0, 0, 1, ma21_buf) <= 0 ||
+       CopyBuffer(g_handle_ma55, 0, 0, 1, ma55_buf) <= 0) {
+        if(GetDebugMode())
+            DebugPrint("Error retrieving moving average values for divergence check. Error: " + IntegerToString(GetLastError()));
+        return false;
+    }
+
     double ma8 = ma8_buf[0];
     double ma13 = ma13_buf[0];
     double ma21 = ma21_buf[0];
     double ma55 = ma55_buf[0];
-    
+
     // Calculate distances
     double diff8_21 = MathAbs(ma8 - ma21);
     double diff13_55 = MathAbs(ma13 - ma55);
-    
+
+    // Prevent division by zero or very small numbers
+    if(diff13_55 < MIN_DIVISOR_VALUE) {
+        if(GetDebugMode())
+            DebugPrint("MA13-MA55 difference too small for divergence calculation");
+        return false;
+    }
+
     // Calculate normalization (relative distance)
     double normalized_diff = diff8_21 / diff13_55;
-    
-    // Release indicator handles to prevent memory leak
-    IndicatorRelease(handle_ma8);
-    IndicatorRelease(handle_ma13);
-    IndicatorRelease(handle_ma21);
-    IndicatorRelease(handle_ma55);
 
     // If the distance is large, divergence exists
-    return (normalized_diff > 1.5);
+    return (normalized_diff > MIN_DIVERGENCE_RATIO);
 }
 
 //+------------------------------------------------------------------+
@@ -265,29 +337,36 @@ bool IsMaDivergence()
 //+------------------------------------------------------------------+
 bool IsMASupport(MqlRates &rates[])
 {
-    // Retrieve recent prices
-    if(ArraySize(rates) < 1) return false;
-    
-    double close_price = rates[0].close;
-    double low_price = rates[0].low;
-    
-    // Retrieve reference moving average
-    int handle_ma = iMA(Symbol(), g_MAC_Timeframe, SlowMAperiod, 0, MAtype, MAappliedPrice);
-    double ma_buf[1];
-    
-    if(CopyBuffer(handle_ma, 0, 0, 1, ma_buf) <= 0) {
-        if(GetDebugMode()) 
-            DebugPrint("Error retrieving moving average values for support check");
+    // Validate handles are initialized
+    if(g_handle_slow_ma == INVALID_HANDLE) {
+        if(GetDebugMode())
+            DebugPrint("MA Support handle not initialized. Call InitMACrossover() first.");
         return false;
     }
-    
+
+    // Retrieve recent prices
+    if(ArraySize(rates) < 1) return false;
+
+    double close_price = rates[0].close;
+    double low_price = rates[0].low;
+
+    // Retrieve reference moving average
+    double ma_buf[1];
+
+    if(CopyBuffer(g_handle_slow_ma, 0, 0, 1, ma_buf) <= 0) {
+        if(GetDebugMode())
+            DebugPrint("Error retrieving moving average values for support check. Error: " + IntegerToString(GetLastError()));
+        return false;
+    }
+
     double ma_support = ma_buf[0];
-    
+
     // If price is close to the moving average and the candle closes upwards
-    if(low_price <= ma_support && low_price > ma_support * 0.995 && close_price > ma_support) {
+    // Using constant for tolerance instead of magic number
+    if(low_price <= ma_support && low_price > ma_support * MA_SUPPORT_TOLERANCE && close_price > ma_support) {
         return true;
     }
-    
+
     return false;
 }
 
@@ -296,28 +375,35 @@ bool IsMASupport(MqlRates &rates[])
 //+------------------------------------------------------------------+
 bool IsMAResistance(MqlRates &rates[])
 {
-    // Retrieve recent prices
-    if(ArraySize(rates) < 1) return false;
-    
-    double close_price = rates[0].close;
-    double high_price = rates[0].high;
-    
-    // Retrieve reference moving average
-    int handle_ma = iMA(Symbol(), g_MAC_Timeframe, SlowMAperiod, 0, MAtype, MAappliedPrice);
-    double ma_buf[1];
-    
-    if(CopyBuffer(handle_ma, 0, 0, 1, ma_buf) <= 0) {
-        if(GetDebugMode()) 
-            DebugPrint("Error retrieving moving average values for resistance check");
+    // Validate handles are initialized
+    if(g_handle_slow_ma == INVALID_HANDLE) {
+        if(GetDebugMode())
+            DebugPrint("MA Resistance handle not initialized. Call InitMACrossover() first.");
         return false;
     }
-    
+
+    // Retrieve recent prices
+    if(ArraySize(rates) < 1) return false;
+
+    double close_price = rates[0].close;
+    double high_price = rates[0].high;
+
+    // Retrieve reference moving average
+    double ma_buf[1];
+
+    if(CopyBuffer(g_handle_slow_ma, 0, 0, 1, ma_buf) <= 0) {
+        if(GetDebugMode())
+            DebugPrint("Error retrieving moving average values for resistance check. Error: " + IntegerToString(GetLastError()));
+        return false;
+    }
+
     double ma_resistance = ma_buf[0];
-    
+
     // If price is close to the moving average and the candle closes downwards
-    if(high_price >= ma_resistance && high_price < ma_resistance * 1.005 && close_price < ma_resistance) {
+    // Using constant for tolerance instead of magic number
+    if(high_price >= ma_resistance && high_price < ma_resistance * MA_RESISTANCE_TOLERANCE && close_price < ma_resistance) {
         return true;
     }
-    
+
     return false;
-} 
+}
