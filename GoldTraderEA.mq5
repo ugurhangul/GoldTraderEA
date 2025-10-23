@@ -73,6 +73,7 @@
 #include "SupportResistance.mqh"
 #include "MACrossover.mqh"
 #include "TrendPatterns.mqh"
+#include "SignalFilterSystem.mqh"
 
 // Input values for settings
 input string   Symbol_Name = "XAUUSD";          // Trading symbol
@@ -155,6 +156,9 @@ input int      MultiTimeframe_Weight = 2;      // Weight of multi-timeframe anal
 CTrade trade;                      // Trading object
 CPositionInfo position;           // Position info object
 CAccountInfo account;             // Account info object
+
+// Signal filtration system
+CSignalFilter g_signal_filter;    // Signal filter instance
 
 // Trade control variables
 datetime last_trade_time = 0;       // Last trade time
@@ -436,6 +440,14 @@ int OnInit()
       return INIT_FAILED;
    }
 
+   // Initialize signal filtration system
+   if(!g_signal_filter.Initialize())
+   {
+      Print("ERROR: Failed to initialize Signal Filtration System");
+      return INIT_FAILED;
+   }
+   Print("Signal Filtration System initialized successfully");
+
    return(INIT_SUCCEEDED);
 }
 
@@ -466,6 +478,11 @@ void OnDeinit(const int reason)
 
     // Release MultiTimeframe resources
     CleanupMultiTimeframeIndicators();
+
+    // Cleanup signal filter
+    g_signal_filter.Deinitialize();
+
+    Print("GoldTraderEA deinitialized. Reason: ", reason);
 }
 
 //+------------------------------------------------------------------+
@@ -737,22 +754,29 @@ void OnTick()
     // Check conditions and confirmations
     int buy_confirmations = 0;
     int sell_confirmations = 0;
-    
+
+    // Declare strategy signal variables at function scope for later use in signal filter
+    bool indicator_buy = false, indicator_sell = false;
+    int ma_buy = 0, ma_sell = 0;
+    int pa_buy = 0, pa_sell = 0;
+    int harmonic_buy = 0, harmonic_sell = 0;
+    int chart_buy = 0, chart_sell = 0;
+
     // 1. Check indicators (they are faster)
     if(Use_Indicators) {
         if(potential_buy) {
-            bool indicator_buy = SafeCheckIndicatorsBuy(local_rates);
+            indicator_buy = SafeCheckIndicatorsBuy(local_rates);
             buy_confirmations += (indicator_buy ? Indicators_Weight : 0);
             if(G_Debug) DebugPrint("Indicator check result for buy: " + (indicator_buy ? "Positive" : "Negative"));
         }
         
         if(potential_sell) {
-            bool indicator_sell = SafeCheckIndicatorsShort(local_rates);
+            indicator_sell = SafeCheckIndicatorsShort(local_rates);
             sell_confirmations += (indicator_sell ? Indicators_Weight : 0);
             if(G_Debug) DebugPrint("Indicator check result for sell: " + (indicator_sell ? "Positive" : "Negative"));
         }
     }
-    
+
     // If still not enough confirmations, check candle patterns
     if(Use_CandlePatterns && (potential_buy || potential_sell)) {
         if(potential_buy) {
@@ -777,14 +801,14 @@ void OnTick()
     // 3. Price action
     if(Use_PriceAction && (!enough_buy_confirmations || !enough_sell_confirmations)) {
         if(potential_buy && !enough_buy_confirmations) {
-            int pa_buy = CheckPriceActionBuy();
+            pa_buy = CheckPriceActionBuy();
             buy_confirmations += pa_buy * PriceAction_Weight;
             enough_buy_confirmations = (buy_confirmations >= Min_Confirmations);
             if(G_Debug) DebugPrint("Number of price action confirmations for buy: " + IntegerToString(pa_buy));
         }
-        
+
         if(potential_sell && !enough_sell_confirmations) {
-            int pa_sell = CheckPriceActionShort();
+            pa_sell = CheckPriceActionShort();
             sell_confirmations += pa_sell * PriceAction_Weight;
             enough_sell_confirmations = (sell_confirmations >= Min_Confirmations);
             if(G_Debug) DebugPrint("Number of price action confirmations for sell: " + IntegerToString(pa_sell));
@@ -794,14 +818,14 @@ void OnTick()
     // 4. Chart patterns
     if(Use_ChartPatterns && (!enough_buy_confirmations || !enough_sell_confirmations)) {
         if(potential_buy && !enough_buy_confirmations) {
-            int chart_buy = CheckChartPatternsBuy();
+            chart_buy = CheckChartPatternsBuy();
             buy_confirmations += chart_buy * ChartPatterns_Weight;
             enough_buy_confirmations = (buy_confirmations >= Min_Confirmations);
             if(G_Debug) DebugPrint("Number of chart confirmations for buy: " + IntegerToString(chart_buy));
         }
-        
+
         if(potential_sell && !enough_sell_confirmations) {
-            int chart_sell = CheckChartPatternsShort();
+            chart_sell = CheckChartPatternsShort();
             sell_confirmations += chart_sell * ChartPatterns_Weight;
             enough_sell_confirmations = (sell_confirmations >= Min_Confirmations);
             if(G_Debug) DebugPrint("Number of chart confirmations for sell: " + IntegerToString(chart_sell));
@@ -828,14 +852,14 @@ void OnTick()
     // 6. Moving average crossovers
     if(Use_MACrossover && (!enough_buy_confirmations || !enough_sell_confirmations)) {
         if(potential_buy && !enough_buy_confirmations) {
-            int ma_buy = CheckMACrossoverBuy(local_rates);
+            ma_buy = CheckMACrossoverBuy(local_rates);
             buy_confirmations += ma_buy * MACrossover_Weight;
             enough_buy_confirmations = (buy_confirmations >= Min_Confirmations);
             if(G_Debug) DebugPrint("Number of MA crossover confirmations for buy: " + IntegerToString(ma_buy));
         }
 
         if(potential_sell && !enough_sell_confirmations) {
-            int ma_sell = CheckMACrossoverShort(local_rates);
+            ma_sell = CheckMACrossoverShort(local_rates);
             sell_confirmations += ma_sell * MACrossover_Weight;
             enough_sell_confirmations = (sell_confirmations >= Min_Confirmations);
             if(G_Debug) DebugPrint("Number of MA crossover confirmations for sell: " + IntegerToString(ma_sell));
@@ -881,13 +905,13 @@ void OnTick()
     // 8. Harmonic patterns (if enabled)
     if(Use_HarmonicPatterns && (!enough_buy_confirmations || !enough_sell_confirmations)) {
         if(potential_buy && !enough_buy_confirmations) {
-            int harmonic_buy = SafeCheckHarmonicPatternsBuy(local_rates);
+            harmonic_buy = SafeCheckHarmonicPatternsBuy(local_rates);
             buy_confirmations += harmonic_buy * HarmonicPatterns_Weight;
             if(G_Debug) DebugPrint("Number of harmonic confirmations for buy: " + IntegerToString(harmonic_buy));
         }
-        
+
         if(potential_sell && !enough_sell_confirmations) {
-            int harmonic_sell = SafeCheckHarmonicPatternsShort(local_rates);
+            harmonic_sell = SafeCheckHarmonicPatternsShort(local_rates);
             sell_confirmations += harmonic_sell * HarmonicPatterns_Weight;
             if(G_Debug) DebugPrint("Number of harmonic confirmations for sell: " + IntegerToString(harmonic_sell));
         }
@@ -1035,16 +1059,64 @@ void OnTick()
     if(buy_confirmations >= Min_Confirmations && !have_buy_position && potential_buy) {
         // Check main trend (if enabled)
         if(!Use_Main_Trend_Filter || current_close > ma_main_trend_value) {
+
+            // === APPLY SIGNAL FILTRATION SYSTEM ===
+            // Create signal data structure
+            CSignalData signal = CreateSignalData(SIGNAL_LONG, "MultiStrategy", current_close);
+
+            // Populate signal with current indicator values
+            signal.adx_value = adx[0];
+            signal.bb_upper_value = bb_upper[0];
+            signal.bb_middle_value = bb_middle[0];
+            signal.bb_lower_value = bb_lower[0];
+            signal.rsi_value = rsi[0];
+            signal.macd_value = macd[0];
+            signal.stoch_value = stoch_k[0];
+
+            // Determine primary strategy category based on highest weighted confirmation
+            if(Use_MACrossover && ma_buy > 0)
+                signal.strategy_name = "MACrossover";
+            else if(Use_Indicators && indicator_buy)
+                signal.strategy_name = "Indicators";
+            else if(Use_PriceAction && pa_buy > 0)
+                signal.strategy_name = "PriceAction";
+            else if(Use_HarmonicPatterns && harmonic_buy > 0)
+                signal.strategy_name = "HarmonicPatterns";
+            else if(Use_ChartPatterns && chart_buy > 0)
+                signal.strategy_name = "ChartPatterns";
+
+            // Validate signal through all gates
+            CFilterResult filter_result;
+            if(!g_signal_filter.ValidateSignal(signal, filter_result))
+            {
+                if(G_Debug)
+                {
+                    DebugPrint("=== BUY SIGNAL REJECTED BY FILTER ===");
+                    DebugPrint("Gate Failed: " + IntegerToString(filter_result.gate_failed));
+                    DebugPrint("Reason: " + filter_result.failure_reason);
+                    DebugPrint("Confirmations: " + IntegerToString(buy_confirmations));
+                }
+                return; // Exit without opening position
+            }
+
+            if(G_Debug)
+            {
+                DebugPrint("=== BUY SIGNAL PASSED ALL FILTERS ===");
+                DebugPrint("Quality Score: " + DoubleToString(filter_result.quality_score, 1));
+                DebugPrint("Strategy: " + signal.strategy_name);
+            }
+            // === END FILTRATION ===
+
             if(G_Debug) DebugPrint("Buy conditions confirmed. Attempting to open buy position...");
             bool result = SafeOpenBuyPosition();
-            
+
             if(G_Debug) {
                 if(result)
                     DebugPrint("Buy position opened successfully.");
                 else
                     DebugPrint("Error opening buy position.");
             }
-            
+
             // Record last trade time
             last_trade_time = current_candle_time;
             return; // Exit after opening a position
@@ -1058,16 +1130,64 @@ void OnTick()
     if(sell_confirmations >= Min_Confirmations && !have_sell_position && potential_sell) {
         // Check main trend (if enabled)
         if(!Use_Main_Trend_Filter || current_close < ma_main_trend_value) {
+
+            // === APPLY SIGNAL FILTRATION SYSTEM ===
+            // Create signal data structure
+            CSignalData signal = CreateSignalData(SIGNAL_SHORT, "MultiStrategy", current_close);
+
+            // Populate signal with current indicator values
+            signal.adx_value = adx[0];
+            signal.bb_upper_value = bb_upper[0];
+            signal.bb_middle_value = bb_middle[0];
+            signal.bb_lower_value = bb_lower[0];
+            signal.rsi_value = rsi[0];
+            signal.macd_value = macd[0];
+            signal.stoch_value = stoch_k[0];
+
+            // Determine primary strategy category
+            if(Use_MACrossover && ma_sell > 0)
+                signal.strategy_name = "MACrossover";
+            else if(Use_Indicators && indicator_sell)
+                signal.strategy_name = "Indicators";
+            else if(Use_PriceAction && pa_sell > 0)
+                signal.strategy_name = "PriceAction";
+            else if(Use_HarmonicPatterns && harmonic_sell > 0)
+                signal.strategy_name = "HarmonicPatterns";
+            else if(Use_ChartPatterns && chart_sell > 0)
+                signal.strategy_name = "ChartPatterns";
+
+            // Validate signal through all gates
+            CFilterResult filter_result;
+            if(!g_signal_filter.ValidateSignal(signal, filter_result))
+            {
+                if(G_Debug)
+                {
+                    DebugPrint("=== SELL SIGNAL REJECTED BY FILTER ===");
+                    DebugPrint("Gate Failed: " + IntegerToString(filter_result.gate_failed));
+                    DebugPrint("Reason: " + filter_result.failure_reason);
+                    DebugPrint("Confirmations: " + IntegerToString(sell_confirmations));
+                }
+                return; // Exit without opening position
+            }
+
+            if(G_Debug)
+            {
+                DebugPrint("=== SELL SIGNAL PASSED ALL FILTERS ===");
+                DebugPrint("Quality Score: " + DoubleToString(filter_result.quality_score, 1));
+                DebugPrint("Strategy: " + signal.strategy_name);
+            }
+            // === END FILTRATION ===
+
             if(G_Debug) DebugPrint("Sell conditions confirmed. Attempting to open sell position...");
             bool result = SafeOpenSellPosition();
-            
+
             if(G_Debug) {
                 if(result)
                     DebugPrint("Sell position opened successfully.");
                 else
                     DebugPrint("Error opening sell position.");
             }
-            
+
             // Record last trade time
             last_trade_time = current_candle_time;
             return; // Exit after opening a position
