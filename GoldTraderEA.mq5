@@ -432,13 +432,13 @@ int OnInit()
        return(INIT_FAILED);
    }
    ArraySetAsSeries(atr, true);
-   
+
    // Initialize multi-timeframe analysis module
-   if(!InitializeMultiTimeframeData()) {
+   if(!InitializeMultiTimeframeIndicators()) {
       DebugPrint("Error initializing multi-timeframe analysis module");
       return INIT_FAILED;
    }
-   
+
    return(INIT_SUCCEEDED);
 }
 
@@ -463,8 +463,8 @@ void OnDeinit(const int reason)
     // Release MACrossover module resources
     DeinitMACrossover();
 
-    // Release MultiTimeframe resources (if needed)
-    // Call the MultiTimeframe release function here if it exists
+    // Release MultiTimeframe resources
+    CleanupMultiTimeframeIndicators();
 }
 
 //+------------------------------------------------------------------+
@@ -919,6 +919,23 @@ void OnTick()
             int wolfe_sell = SafeCheckWolfeWavesShort(local_rates);
             sell_confirmations += wolfe_sell * WolfeWaves_Weight;
             if(G_Debug) DebugPrint("Number of Wolfe Wave confirmations for sell: " + IntegerToString(wolfe_sell));
+        }
+    }
+
+    // 11. Multi-Timeframe Analysis (if enabled)
+    if(Use_MultiTimeframe && (!enough_buy_confirmations || !enough_sell_confirmations)) {
+        if(potential_buy && !enough_buy_confirmations) {
+            int mtf_buy = CheckMultiTimeframeBuy(local_rates);
+            buy_confirmations += mtf_buy * MultiTimeframe_Weight;
+            enough_buy_confirmations = (buy_confirmations >= Min_Confirmations);
+            if(G_Debug) DebugPrint("Number of multi-timeframe confirmations for buy: " + IntegerToString(mtf_buy));
+        }
+
+        if(potential_sell && !enough_sell_confirmations) {
+            int mtf_sell = CheckMultiTimeframeShort(local_rates);
+            sell_confirmations += mtf_sell * MultiTimeframe_Weight;
+            enough_sell_confirmations = (sell_confirmations >= Min_Confirmations);
+            if(G_Debug) DebugPrint("Number of multi-timeframe confirmations for sell: " + IntegerToString(mtf_sell));
         }
     }
 
