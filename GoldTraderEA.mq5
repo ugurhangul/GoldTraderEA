@@ -929,7 +929,7 @@ void OnTick()
     }
 
     // 10. Wolfe Waves (if enabled)
-    if(Use_WolfeWaves && copied >= 50 && (!enough_buy_confirmations || !enough_sell_confirmations)) {
+    if(Use_WolfeWaves && copied >= 51 && (!enough_buy_confirmations || !enough_sell_confirmations)) {
         if(potential_buy && !enough_buy_confirmations) {
             int wolfe_buy = SafeCheckWolfeWavesBuy(local_rates);
             buy_confirmations += wolfe_buy * WolfeWaves_Weight;
