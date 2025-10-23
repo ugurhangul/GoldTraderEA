@@ -336,9 +336,9 @@ bool IsBearishElliottWaveABC(MqlRates &rates[])
    // Check if wave C did not exceed the low of wave A
    if(rates[pointC].low <= rates[pointA].low)
         return false;
-        
-   // Check if current price is breaking above the high of wave B
-   if(rates[0].close > rates[pointB].high)
+
+   // Check if current price is breaking below the low of wave B (bearish signal)
+   if(rates[0].close < rates[pointB].low)
       return true;
       
    return false;

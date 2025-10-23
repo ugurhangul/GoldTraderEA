@@ -19,9 +19,9 @@ extern bool is_backtest;
 #define BUTTERFLY_POINT_C_EXTENSION   1.618 // Fibonacci ratio for point C in the Butterfly pattern
 #define BUTTERFLY_POINT_D_EXTENSION   1.272 // Fibonacci ratio for point D in the Butterfly pattern
 
-#define BAT_POINT_B_RETRACEMENT      0.382 // Fibonacci ratio for point B in the Bat pattern
-#define BAT_POINT_C_RETRACEMENT      0.886 // Fibonacci ratio for point C in the Bat pattern
-#define BAT_POINT_D_EXTENSION        1.618 // Fibonacci ratio for point D in the Bat pattern
+#define BAT_POINT_B_RETRACEMENT      0.382 // Fibonacci ratio for point B in the Bat pattern (retracement of XA)
+#define BAT_POINT_C_EXTENSION        0.618 // Fibonacci ratio for point C in the Bat pattern (extension of AB, range 0.382-0.886)
+#define BAT_POINT_D_RETRACEMENT      0.886 // Fibonacci ratio for point D in the Bat pattern (retracement of XA)
 
 #define TOLERANCE_LEVEL 0.03 // Tolerance level for pattern detection (3 percent)
 
@@ -493,26 +493,23 @@ bool IsBullishBat(MqlRates &rates[])
     double xaMove = aPoint - xPoint;
     double abMove = aPoint - bPoint;
     double bcMove = cPoint - bPoint;
-    double cdMove = cPoint - dPoint;
-    
+    double xdMove = dPoint - xPoint;
+
     // Calculate Fibonacci ratios
     double abRatio = abMove / xaMove;                  // Ratio of AB to XA (should be approximately 0.382)
-    double bcRatio = bcMove / abMove;                  // Ratio of BC to AB (should be approximately 0.886)
-    double cdRatio = cdMove / bcMove;                  // Ratio of CD to BC (should be approximately 1.618)
-    
+    double bcRatio = bcMove / abMove;                  // Ratio of BC to AB (should be approximately 0.382-0.886)
+    double xdRatio = xdMove / xaMove;                  // Ratio of XD to XA (should be approximately 0.886)
+
     // Time sequence must be correct
     if(!(xIndex > aIndex && aIndex > bIndex && bIndex > cIndex && cIndex > dIndex))
         return false;
-    
+
     // Check Fibonacci ratios with tolerance
     bool validAB = MathAbs(abRatio - BAT_POINT_B_RETRACEMENT) <= TOLERANCE_LEVEL;
-    bool validBC = MathAbs(bcRatio - BAT_POINT_C_RETRACEMENT) <= TOLERANCE_LEVEL;
-    bool validCD = MathAbs(cdRatio - BAT_POINT_D_EXTENSION) <= TOLERANCE_LEVEL;
+    bool validBC = MathAbs(bcRatio - BAT_POINT_C_EXTENSION) <= TOLERANCE_LEVEL;
+    bool validXD = MathAbs(xdRatio - BAT_POINT_D_RETRACEMENT) <= TOLERANCE_LEVEL;
     
-    // For Bat pattern, point D should be slightly beyond X but not excessively
-    bool validXD = dPoint < xPoint && MathAbs(dPoint - xPoint) <= 0.2 * xaMove;
-    
-    if(validAB && validBC && validCD && validXD) {
+    if(validAB && validBC && validXD) {
         DebugPrint("Bullish Bat pattern: XA=" + DoubleToString(xaMove, 2) + 
                    ", AB Ratio=" + DoubleToString(abRatio, 3) + 
                    ", BC Ratio=" + DoubleToString(bcRatio, 3) + 
@@ -546,26 +543,23 @@ bool IsBearishBat(MqlRates &rates[])
     double xaMove = xPoint - aPoint;
     double abMove = bPoint - aPoint;
     double bcMove = bPoint - cPoint;
-    double cdMove = dPoint - cPoint;
-    
+    double xdMove = xPoint - dPoint;
+
     // Calculate Fibonacci ratios
     double abRatio = abMove / xaMove;                  // Ratio of AB to XA (should be approximately 0.382)
-    double bcRatio = bcMove / abMove;                  // Ratio of BC to AB (should be approximately 0.886)
-    double cdRatio = cdMove / bcMove;                  // Ratio of CD to BC (should be approximately 1.618)
-    
+    double bcRatio = bcMove / abMove;                  // Ratio of BC to AB (should be approximately 0.382-0.886)
+    double xdRatio = xdMove / xaMove;                  // Ratio of XD to XA (should be approximately 0.886)
+
     // Time sequence must be correct
     if(!(xIndex > aIndex && aIndex > bIndex && bIndex > cIndex && cIndex > dIndex))
         return false;
-    
+
     // Check Fibonacci ratios with tolerance
     bool validAB = MathAbs(abRatio - BAT_POINT_B_RETRACEMENT) <= TOLERANCE_LEVEL;
-    bool validBC = MathAbs(bcRatio - BAT_POINT_C_RETRACEMENT) <= TOLERANCE_LEVEL;
-    bool validCD = MathAbs(cdRatio - BAT_POINT_D_EXTENSION) <= TOLERANCE_LEVEL;
-    
-    // For Bat pattern, point D should be slightly beyond X but not excessively
-    bool validXD = dPoint > xPoint && MathAbs(dPoint - xPoint) <= 0.2 * xaMove;
-    
-    if(validAB && validBC && validCD && validXD) {
+    bool validBC = MathAbs(bcRatio - BAT_POINT_C_EXTENSION) <= TOLERANCE_LEVEL;
+    bool validXD = MathAbs(xdRatio - BAT_POINT_D_RETRACEMENT) <= TOLERANCE_LEVEL;
+
+    if(validAB && validBC && validXD) {
         DebugPrint("Bearish Bat pattern: XA=" + DoubleToString(xaMove, 2) + 
                    ", AB Ratio=" + DoubleToString(abRatio, 3) + 
                    ", BC Ratio=" + DoubleToString(bcRatio, 3) + 

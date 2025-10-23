@@ -126,7 +126,12 @@ int CheckMACrossoverBuy(MqlRates &rates[])
         confirmations++;
         if(GetDebugMode()) DebugPrint("Slope of the fast moving average is upward");
     }
-    
+
+    // Release indicator handles to prevent memory leak
+    IndicatorRelease(handle_fast);
+    IndicatorRelease(handle_slow);
+    IndicatorRelease(handle_long);
+
     return confirmations;
 }
 
@@ -202,7 +207,12 @@ int CheckMACrossoverShort(MqlRates &rates[])
         confirmations++;
         if(GetDebugMode()) DebugPrint("Slope of the fast moving average is downward");
     }
-    
+
+    // Release indicator handles to prevent memory leak
+    IndicatorRelease(handle_fast);
+    IndicatorRelease(handle_slow);
+    IndicatorRelease(handle_long);
+
     return confirmations;
 }
 
@@ -240,6 +250,12 @@ bool IsMaDivergence()
     // Calculate normalization (relative distance)
     double normalized_diff = diff8_21 / diff13_55;
     
+    // Release indicator handles to prevent memory leak
+    IndicatorRelease(handle_ma8);
+    IndicatorRelease(handle_ma13);
+    IndicatorRelease(handle_ma21);
+    IndicatorRelease(handle_ma55);
+
     // If the distance is large, divergence exists
     return (normalized_diff > 1.5);
 }

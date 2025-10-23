@@ -34,28 +34,30 @@ bool IsBullishTrendBreakout(MqlRates &rates[])
     double trendline_value = 0;
     int count_touches = 0;
     double slope = 0;
-    
+    int first_touch_idx = -1;
+
     // Search for local maxima
     for(int i = 3; i < size - 3; i++) {
-        if(!CheckArrayAccess(i, size, "IsBullishTrendBreakout") || 
-           !CheckArrayAccess(i+1, size, "IsBullishTrendBreakout") || 
+        if(!CheckArrayAccess(i, size, "IsBullishTrendBreakout") ||
+           !CheckArrayAccess(i+1, size, "IsBullishTrendBreakout") ||
            !CheckArrayAccess(i-1, size, "IsBullishTrendBreakout"))
             continue;
-            
+
         // Local maximum if the current candle is higher than the adjacent candles
         if(rates[i].high > rates[i+1].high && rates[i].high > rates[i-1].high) {
             // Collect trend line points
             if(count_touches == 0) {
                 trendline_value = rates[i].high;
+                first_touch_idx = i;
                 count_touches++;
             } else if(count_touches == 1) {
-                // Calculate the slope of the trend line
-                slope = (rates[i].high - trendline_value) / (i);
+                // Calculate the slope of the trend line (using actual distance between points)
+                slope = (rates[i].high - trendline_value) / (i - first_touch_idx);
                 trendline_value = rates[i].high;
                 count_touches++;
             } else {
                 // Check alignment with the trend line
-                double expected_value = trendline_value - (slope * (i));
+                double expected_value = trendline_value - (slope * (i - first_touch_idx));
                 if(MathAbs(rates[i].high - expected_value) < 20 * Point()) {
                     trendline_value = rates[i].high;
                     count_touches++;
@@ -100,28 +102,30 @@ bool IsBearishTrendBreakout(MqlRates &rates[])
     double trendline_value = 0;
     int count_touches = 0;
     double slope = 0;
-    
+    int first_touch_idx = -1;
+
     // Search for local minima
     for(int i = 3; i < size - 3; i++) {
-        if(!CheckArrayAccess(i, size, "IsBearishTrendBreakout") || 
-           !CheckArrayAccess(i+1, size, "IsBearishTrendBreakout") || 
+        if(!CheckArrayAccess(i, size, "IsBearishTrendBreakout") ||
+           !CheckArrayAccess(i+1, size, "IsBearishTrendBreakout") ||
            !CheckArrayAccess(i-1, size, "IsBearishTrendBreakout"))
             continue;
-            
+
         // Local minimum if the current candle is lower than the adjacent candles
         if(rates[i].low < rates[i+1].low && rates[i].low < rates[i-1].low) {
             // Collect trend line points
             if(count_touches == 0) {
                 trendline_value = rates[i].low;
+                first_touch_idx = i;
                 count_touches++;
             } else if(count_touches == 1) {
-                // Calculate the slope of the trend line
-                slope = (rates[i].low - trendline_value) / (i);
+                // Calculate the slope of the trend line (using actual distance between points)
+                slope = (rates[i].low - trendline_value) / (i - first_touch_idx);
                 trendline_value = rates[i].low;
                 count_touches++;
             } else {
                 // Check alignment with the trend line
-                double expected_value = trendline_value + (slope * (i));
+                double expected_value = trendline_value + (slope * (i - first_touch_idx));
                 if(MathAbs(rates[i].low - expected_value) < 20 * Point()) {
                     trendline_value = rates[i].low;
                     count_touches++;

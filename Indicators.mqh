@@ -50,18 +50,19 @@ bool SafeCheckIndicatorsBuy(MqlRates &rates[])
     }
     
     bool result = false;
-    
+
     // Execute function with error protection
-    int error = 0;
-    
+    ResetLastError();
+
     // Attempt to execute the function
     result = CheckIndicatorsBuy(rates);
-    
+
+    int error = GetLastError();
     if(error != 0) {
         DebugPrint("Error executing CheckIndicatorsBuy: " + IntegerToString(error));
         return false;
     }
-    
+
     return result;
 }
 
@@ -84,18 +85,19 @@ bool SafeCheckIndicatorsShort(MqlRates &rates[])
     }
     
     bool result = false;
-    
+
     // Execute function with error protection
-    int error = 0;
-    
+    ResetLastError();
+
     // Attempt to execute the function
     result = CheckIndicatorsShort(rates);
-    
+
+    int error = GetLastError();
     if(error != 0) {
         DebugPrint("Error executing CheckIndicatorsShort: " + IntegerToString(error));
         return false;
     }
-    
+
     return result;
 }
 

@@ -110,14 +110,15 @@ bool IsSupportValid(MqlRates &rates[], double level)
 {
     int test_count = 0;
     double tolerance = 0.0005 * level; // Tolerance 0.05%
-    
-    for(int i = 0; i < 200; i++) {
+    int max_check = MathMin(200, ArraySize(rates));
+
+    for(int i = 0; i < max_check; i++) {
         if(MathAbs(rates[i].low - level) <= tolerance) {
             test_count++;
             if(test_count >= 2) return true;
         }
     }
-    
+
     return false;
 }
 
@@ -128,14 +129,15 @@ bool IsResistanceValid(MqlRates &rates[], double level)
 {
     int test_count = 0;
     double tolerance = 0.0005 * level; // Tolerance 0.05%
-    
-    for(int i = 0; i < 200; i++) {
+    int max_check = MathMin(200, ArraySize(rates));
+
+    for(int i = 0; i < max_check; i++) {
         if(MathAbs(rates[i].high - level) <= tolerance) {
             test_count++;
             if(test_count >= 2) return true;
         }
     }
-    
+
     return false;
 }
 
