@@ -29,12 +29,15 @@ bool IsBullishTrendBreakout(MqlRates &rates[])
         DebugPrint("Error in IsBullishTrendBreakout: Array size is too small: " + IntegerToString(size));
         return false;
     }
-    
+
     // Find the downtrend line
-    double trendline_value = 0;
+    double first_touch_value = 0;
+    double second_touch_value = 0;
     int count_touches = 0;
     double slope = 0;
     int first_touch_idx = -1;
+    int second_touch_idx = -1;
+    int last_touch_idx = -1;
 
     // Search for local maxima
     for(int i = 3; i < size - 3; i++) {
@@ -47,42 +50,55 @@ bool IsBullishTrendBreakout(MqlRates &rates[])
         if(rates[i].high > rates[i+1].high && rates[i].high > rates[i-1].high) {
             // Collect trend line points
             if(count_touches == 0) {
-                trendline_value = rates[i].high;
+                first_touch_value = rates[i].high;
                 first_touch_idx = i;
+                last_touch_idx = i;
                 count_touches++;
             } else if(count_touches == 1) {
+                // Protection against division by zero
+                if(i == first_touch_idx) continue;
+
                 // Calculate the slope of the trend line (using actual distance between points)
-                slope = (rates[i].high - trendline_value) / (i - first_touch_idx);
-                trendline_value = rates[i].high;
+                second_touch_value = rates[i].high;
+                second_touch_idx = i;
+                slope = (second_touch_value - first_touch_value) / (second_touch_idx - first_touch_idx);
+                last_touch_idx = i;
                 count_touches++;
             } else {
+                // Protection against division by zero
+                if(i == second_touch_idx) continue;
+
                 // Check alignment with the trend line
-                double expected_value = trendline_value - (slope * (i - first_touch_idx));
+                // Project from second touch point to current position
+                double expected_value = second_touch_value + (slope * (i - second_touch_idx));
                 if(MathAbs(rates[i].high - expected_value) < 20 * Point()) {
-                    trendline_value = rates[i].high;
+                    last_touch_idx = i;
                     count_touches++;
                 }
             }
         }
     }
-    
+
     // At least three touches with the trend line for validity
     if(count_touches < 3)
         return false;
-        
-    // Calculate the trend line value at the current point
-    trendline_value = trendline_value - (slope * size);
-    
+
+    // Calculate the trend line value at the current point (index 0)
+    // Project from the second touch point to current position (index 0)
+    // Since array is series, index 0 is most recent, higher indices are older
+    // Distance from second_touch_idx to 0 is: 0 - second_touch_idx = -second_touch_idx
+    double trendline_value = second_touch_value + (slope * (0 - second_touch_idx));
+
     // Check for trend line breakout
-    if(CheckArrayAccess(0, size, "IsBullishTrendBreakout") && 
+    if(CheckArrayAccess(0, size, "IsBullishTrendBreakout") &&
        CheckArrayAccess(1, size, "IsBullishTrendBreakout"))
     {
-        DebugPrint("Trend line value: " + DoubleToString(trendline_value) + 
-                   ", Current price: " + DoubleToString(rates[0].close) + 
+        DebugPrint("Trend line value: " + DoubleToString(trendline_value) +
+                   ", Current price: " + DoubleToString(rates[0].close) +
                    ", Previous price: " + DoubleToString(rates[1].close));
         return (rates[0].close > trendline_value && rates[1].close <= trendline_value);
     }
-    
+
     return false;
 }
 
@@ -97,12 +113,15 @@ bool IsBearishTrendBreakout(MqlRates &rates[])
         DebugPrint("Error in IsBearishTrendBreakout: Array size is too small: " + IntegerToString(size));
         return false;
     }
-    
+
     // Find the uptrend line
-    double trendline_value = 0;
+    double first_touch_value = 0;
+    double second_touch_value = 0;
     int count_touches = 0;
     double slope = 0;
     int first_touch_idx = -1;
+    int second_touch_idx = -1;
+    int last_touch_idx = -1;
 
     // Search for local minima
     for(int i = 3; i < size - 3; i++) {
@@ -115,42 +134,55 @@ bool IsBearishTrendBreakout(MqlRates &rates[])
         if(rates[i].low < rates[i+1].low && rates[i].low < rates[i-1].low) {
             // Collect trend line points
             if(count_touches == 0) {
-                trendline_value = rates[i].low;
+                first_touch_value = rates[i].low;
                 first_touch_idx = i;
+                last_touch_idx = i;
                 count_touches++;
             } else if(count_touches == 1) {
+                // Protection against division by zero
+                if(i == first_touch_idx) continue;
+
                 // Calculate the slope of the trend line (using actual distance between points)
-                slope = (rates[i].low - trendline_value) / (i - first_touch_idx);
-                trendline_value = rates[i].low;
+                second_touch_value = rates[i].low;
+                second_touch_idx = i;
+                slope = (second_touch_value - first_touch_value) / (second_touch_idx - first_touch_idx);
+                last_touch_idx = i;
                 count_touches++;
             } else {
+                // Protection against division by zero
+                if(i == second_touch_idx) continue;
+
                 // Check alignment with the trend line
-                double expected_value = trendline_value + (slope * (i - first_touch_idx));
+                // Project from second touch point to current position
+                double expected_value = second_touch_value + (slope * (i - second_touch_idx));
                 if(MathAbs(rates[i].low - expected_value) < 20 * Point()) {
-                    trendline_value = rates[i].low;
+                    last_touch_idx = i;
                     count_touches++;
                 }
             }
         }
     }
-    
+
     // At least three touches with the trend line for validity
     if(count_touches < 3)
         return false;
-        
-    // Calculate the trend line value at the current point
-    trendline_value = trendline_value + (slope * size);
-    
+
+    // Calculate the trend line value at the current point (index 0)
+    // Project from the second touch point to current position (index 0)
+    // Since array is series, index 0 is most recent, higher indices are older
+    // Distance from second_touch_idx to 0 is: 0 - second_touch_idx = -second_touch_idx
+    double trendline_value = second_touch_value + (slope * (0 - second_touch_idx));
+
     // Check for trend line breakout
-    if(CheckArrayAccess(0, size, "IsBearishTrendBreakout") && 
+    if(CheckArrayAccess(0, size, "IsBearishTrendBreakout") &&
        CheckArrayAccess(1, size, "IsBearishTrendBreakout"))
     {
-        DebugPrint("Trend line value: " + DoubleToString(trendline_value) + 
-                   ", Current price: " + DoubleToString(rates[0].close) + 
+        DebugPrint("Trend line value: " + DoubleToString(trendline_value) +
+                   ", Current price: " + DoubleToString(rates[0].close) +
                    ", Previous price: " + DoubleToString(rates[1].close));
         return (rates[0].close < trendline_value && rates[1].close >= trendline_value);
     }
-    
+
     return false;
 }
 
@@ -160,19 +192,18 @@ bool IsBearishTrendBreakout(MqlRates &rates[])
 int CheckTrendPatternsBuy(MqlRates &rates[])
 {
     int confirmations = 0;
-    
-    // If the rates array is empty, fill it
-    if(ArraySize(rates) < 100)
-    {
-        // Retrieve candle data
-        ArraySetAsSeries(rates, true);
-        CopyRates(Symbol(), TP_Timeframe, 0, 100, rates);
+    int size = ArraySize(rates);
+
+    // Validate array has enough data for trend analysis
+    if(size < 30) {
+        DebugPrint("CheckTrendPatternsBuy: Insufficient data for trend analysis. Size: " + IntegerToString(size));
+        return 0;
     }
-    
+
     // Bullish Trend Breakout
     if(IsBullishTrendBreakout(rates))
         confirmations++;
-    
+
     return confirmations;
 }
 
@@ -182,18 +213,17 @@ int CheckTrendPatternsBuy(MqlRates &rates[])
 int CheckTrendPatternsShort(MqlRates &rates[])
 {
     int confirmations = 0;
-    
-    // If the rates array is empty, fill it
-    if(ArraySize(rates) < 100)
-    {
-        // Retrieve candle data
-        ArraySetAsSeries(rates, true);
-        CopyRates(Symbol(), TP_Timeframe, 0, 100, rates);
+    int size = ArraySize(rates);
+
+    // Validate array has enough data for trend analysis
+    if(size < 30) {
+        DebugPrint("CheckTrendPatternsShort: Insufficient data for trend analysis. Size: " + IntegerToString(size));
+        return 0;
     }
-    
+
     // Bearish Trend Breakout
     if(IsBearishTrendBreakout(rates))
         confirmations++;
-    
+
     return confirmations;
-} 
+}
