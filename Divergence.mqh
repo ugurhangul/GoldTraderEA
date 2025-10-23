@@ -159,14 +159,15 @@ bool IsBullishRSIDivergence(MqlRates &rates[])
     {
         // In time-series arrays with ArraySetAsSeries=true:
         // Smaller index = newer (more recent), Larger index = older
-        int newer_idx = MathMin(low1_idx, low2_idx);  // Most recent swing low
-        int older_idx = MathMax(low1_idx, low2_idx);  // Earlier swing low
+        // low1_idx is always < low2_idx due to loop structure, so no need for MathMin/MathMax
+        int newer_idx = low1_idx;  // Most recent swing low (found first in loop)
+        int older_idx = low2_idx;  // Earlier swing low (found second in loop)
 
         double newer_price = rates[newer_idx].low;
         double older_price = rates[older_idx].low;
 
-        double newer_rsi = newer_idx == low1_idx ? rsi_low1 : rsi_low2;
-        double older_rsi = older_idx == low1_idx ? rsi_low1 : rsi_low2;
+        double newer_rsi = rsi_low1;
+        double older_rsi = rsi_low2;
 
         // Bullish divergence: price makes lower low, but RSI makes higher low
         // newer_price < older_price (price declining) AND newer_rsi > older_rsi (RSI rising)
@@ -229,14 +230,15 @@ bool IsBearishRSIDivergence(MqlRates &rates[])
     {
         // In time-series arrays with ArraySetAsSeries=true:
         // Smaller index = newer (more recent), Larger index = older
-        int newer_idx = MathMin(high1_idx, high2_idx);  // Most recent swing high
-        int older_idx = MathMax(high1_idx, high2_idx);  // Earlier swing high
+        // high1_idx is always < high2_idx due to loop structure, so no need for MathMin/MathMax
+        int newer_idx = high1_idx;  // Most recent swing high (found first in loop)
+        int older_idx = high2_idx;  // Earlier swing high (found second in loop)
 
         double newer_price = rates[newer_idx].high;
         double older_price = rates[older_idx].high;
 
-        double newer_rsi = newer_idx == high1_idx ? rsi_high1 : rsi_high2;
-        double older_rsi = older_idx == high1_idx ? rsi_high1 : rsi_high2;
+        double newer_rsi = rsi_high1;
+        double older_rsi = rsi_high2;
 
         // Bearish divergence: price makes higher high, but RSI makes lower high
         // newer_price > older_price (price rising) AND newer_rsi < older_rsi (RSI falling)
@@ -303,8 +305,9 @@ bool IsBullishMACDDivergence(MqlRates &rates[])
     {
         // In time-series arrays with ArraySetAsSeries=true:
         // Smaller index = newer (more recent), Larger index = older
-        int newer_idx = MathMin(low1_idx, low2_idx);  // Most recent swing low
-        int older_idx = MathMax(low1_idx, low2_idx);  // Earlier swing low
+        // low1_idx is always < low2_idx due to loop structure, so no need for MathMin/MathMax
+        int newer_idx = low1_idx;  // Most recent swing low (found first in loop)
+        int older_idx = low2_idx;  // Earlier swing low (found second in loop)
 
         // Verify array bounds before access
         if(newer_idx >= ArraySize(rates) || older_idx >= ArraySize(rates) ||
@@ -314,8 +317,8 @@ bool IsBullishMACDDivergence(MqlRates &rates[])
         double newer_price = rates[newer_idx].low;
         double older_price = rates[older_idx].low;
 
-        double newer_macd = newer_idx == low1_idx ? macd_low1 : macd_low2;
-        double older_macd = older_idx == low1_idx ? macd_low1 : macd_low2;
+        double newer_macd = macd_low1;
+        double older_macd = macd_low2;
 
         // Bullish divergence: price makes lower low, but MACD makes higher low
         // newer_price < older_price (price declining) AND newer_macd > older_macd (MACD rising)
@@ -382,8 +385,9 @@ bool IsBearishMACDDivergence(MqlRates &rates[])
     {
         // In time-series arrays with ArraySetAsSeries=true:
         // Smaller index = newer (more recent), Larger index = older
-        int newer_idx = MathMin(high1_idx, high2_idx);  // Most recent swing high
-        int older_idx = MathMax(high1_idx, high2_idx);  // Earlier swing high
+        // high1_idx is always < high2_idx due to loop structure, so no need for MathMin/MathMax
+        int newer_idx = high1_idx;  // Most recent swing high (found first in loop)
+        int older_idx = high2_idx;  // Earlier swing high (found second in loop)
 
         // Verify array bounds before access
         if(newer_idx >= ArraySize(rates) || older_idx >= ArraySize(rates) ||
@@ -393,8 +397,8 @@ bool IsBearishMACDDivergence(MqlRates &rates[])
         double newer_price = rates[newer_idx].high;
         double older_price = rates[older_idx].high;
 
-        double newer_macd = newer_idx == high1_idx ? macd_high1 : macd_high2;
-        double older_macd = older_idx == high1_idx ? macd_high1 : macd_high2;
+        double newer_macd = macd_high1;
+        double older_macd = macd_high2;
 
         // Bearish divergence: price makes higher high, but MACD makes lower high
         // newer_price > older_price (price rising) AND newer_macd < older_macd (MACD falling)
