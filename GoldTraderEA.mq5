@@ -6,9 +6,20 @@
 //| Description: Multi-strategy Expert Advisor for Gold (XAUUSD)     |
 //|              Uses weighted confirmation system with 7 strategies  |
 //|                                                                   |
-//| Version: 2.2.0 - REMOVED SILENT STRATEGIES                        |
-//| Build: 2008 (2025-10-29)                                          |
-//| Last Modified: 2025-10-29                                         |
+//| Version: 2.3.0 - LOSS PREVENTION FILTERS                          |
+//| Build: 2009 (2025-10-30)                                          |
+//| Last Modified: 2025-10-30                                         |
+//|                                                                   |
+//| Changes in v2.3.0 (Build 2009):                                   |
+//| - ADDED Loss Prevention Filters (Phase 1 & 2)                    |
+//| - Time-based filter: Blocks hours 09:00, 02:00, 15:00            |
+//|   (Expected impact: +$4,000 - prevents 48 losses)                |
+//| - ADX + Direction filter: Blocks SHORT when ADX > 45             |
+//|   (Expected impact: +$1,279 - prevents 9 losses)                 |
+//| - RSI Extreme filters: Blocks RSI < 30 SHORT, RSI > 70 LONG      |
+//|   (Expected impact: +$2,017 - prevents 25 losses)                |
+//| - Total expected improvement: +$7,296 (10.6% loss reduction)     |
+//| - Based on comprehensive analysis of 951 trades (304 losses)     |
 //|                                                                   |
 //| Changes in v2.2.0 (Build 2008):                                   |
 //| - REMOVED PA(1),CP(1) filter that was rejecting 70% of signals   |
@@ -58,7 +69,7 @@
 //+------------------------------------------------------------------+
 #property copyright "Copyright 2024"
 #property link      "https://www.mql5.com"
-#property version   "2.20"
+#property version   "2.30"
 #property strict
 
 //+------------------------------------------------------------------+
@@ -85,9 +96,9 @@
 #include "TradeTracker.mqh"
 
 // Version and Build Information
-#define EA_VERSION "2.2.0"
-#define EA_BUILD 2008
-#define EA_BUILD_DATE "2025-10-29"
+#define EA_VERSION "2.3.0"
+#define EA_BUILD 2009
+#define EA_BUILD_DATE "2025-10-30"
 
 // Input values for settings
 input ENUM_TIMEFRAMES Timeframe = PERIOD_H1;   // Timeframe
@@ -156,6 +167,18 @@ input double              Trailing_Stop_Pips = 50;                     // Traili
 input double              ATR_Trailing_Multiplier = 1.2;               // ATR multiplier for trailing distance (reduced from 1.5 to allow tighter trailing)
 input double              Min_Profit_To_Trail_Pips = 60;               // Minimum profit in pips before trailing activates (increased from 30 to let trades breathe)
 const bool                Trail_After_Breakeven = true;                // Only trail after breakeven (best practice, always enabled)
+
+// Loss Prevention Filters (Phase 1 & 2)
+input string              Loss_Prevention_Settings = "---- Loss Prevention Filters ----"; // Loss prevention parameters
+input bool                Use_Time_Based_Filter = true;                // Enable time-based filters (hours 09:00, 02:00, 15:00)
+input bool                Use_ADX_Direction_Filter = true;             // Enable ADX + direction filters
+input bool                Use_RSI_Extreme_Filter = true;               // Enable RSI extreme filters
+input int                 Filter_Hour_1 = 9;                           // First hour to filter (default: 09:00)
+input int                 Filter_Hour_2 = 2;                           // Second hour to filter (default: 02:00)
+input int                 Filter_Hour_3 = 15;                          // Third hour to filter (default: 15:00)
+input double              ADX_Short_Threshold = 45.0;                  // ADX threshold for SHORT trades (default: 45)
+input double              RSI_Short_Oversold = 30.0;                   // RSI oversold threshold for SHORT (default: 30)
+input double              RSI_Long_Overbought = 70.0;                  // RSI overbought threshold for LONG (default: 70)
 
 // Weights of strategies (importance of each strategy) - ACTIVE STRATEGIES ONLY (7 strategies)
 // Removed weights for silent strategies: ElliottWaves, Divergence, HarmonicPatterns, MACrossover, PivotPoints, TimeAnalysis, WolfeWaves
@@ -729,6 +752,78 @@ bool RequiresAdditionalConfirmation(bool is_buy, int &votes[])
    }
 
    return false;  // Allow the signal
+}
+
+//+------------------------------------------------------------------+
+//| Loss Prevention Filter (Phase 1 & 2)                             |
+//| Returns true if signal should be rejected based on historical    |
+//| loss patterns. Filters based on time, ADX+direction, RSI extremes|
+//+------------------------------------------------------------------+
+bool ShouldFilterTrade(bool is_buy, double current_rsi, double current_adx)
+{
+   // Get current hour
+   MqlDateTime time_struct;
+   TimeToStruct(TimeCurrent(), time_struct);
+   int current_hour = time_struct.hour;
+
+   // PHASE 1: Time-based filters
+   // Hours 09:00, 02:00, 15:00 show poor historical performance
+   // Impact: +$4,000 combined
+   if(Use_Time_Based_Filter) {
+      if(current_hour == Filter_Hour_1 || current_hour == Filter_Hour_2 || current_hour == Filter_Hour_3) {
+         if(G_Debug) {
+            Print("LOSS PREVENTION FILTER REJECT [Build ", EA_BUILD, "]: Hour ", current_hour, ":00");
+            Print("  Historical data shows poor performance during this hour");
+            Print("  Expected impact: Prevents high-loss trades");
+         }
+         return true;  // Reject the signal
+      }
+   }
+
+   // PHASE 1: ADX + Direction filter
+   // ADX > 45 + SHORT shows 61.3% win rate (below 68% average)
+   // Impact: +$1,279
+   if(Use_ADX_Direction_Filter) {
+      if(!is_buy && current_adx > ADX_Short_Threshold) {
+         if(G_Debug) {
+            Print("LOSS PREVENTION FILTER REJECT [Build ", EA_BUILD, "]: ADX > ", ADX_Short_Threshold, " for SHORT");
+            Print("  ADX: ", DoubleToString(current_adx, 2));
+            Print("  Reason: Strong trend exhaustion risk for SHORT trades");
+            Print("  Expected impact: +$1,279 improvement");
+         }
+         return true;  // Reject the signal
+      }
+   }
+
+   // PHASE 2: RSI Extreme filters
+   // RSI < 30 + SHORT: 53.3% win rate (worst performing pattern)
+   // RSI > 70 + LONG: 69.1% win rate (marginal)
+   // Combined impact: +$2,017
+   if(Use_RSI_Extreme_Filter) {
+      // RSI < 30 for SHORT trades (oversold bounce risk)
+      if(!is_buy && current_rsi < RSI_Short_Oversold) {
+         if(G_Debug) {
+            Print("LOSS PREVENTION FILTER REJECT [Build ", EA_BUILD, "]: RSI < ", RSI_Short_Oversold, " for SHORT");
+            Print("  RSI: ", DoubleToString(current_rsi, 2));
+            Print("  Reason: Oversold bounce risk - market may reverse up");
+            Print("  Expected impact: +$1,144 improvement");
+         }
+         return true;  // Reject the signal
+      }
+
+      // RSI > 70 for LONG trades (overbought reversal risk)
+      if(is_buy && current_rsi > RSI_Long_Overbought) {
+         if(G_Debug) {
+            Print("LOSS PREVENTION FILTER REJECT [Build ", EA_BUILD, "]: RSI > ", RSI_Long_Overbought, " for LONG");
+            Print("  RSI: ", DoubleToString(current_rsi, 2));
+            Print("  Reason: Overbought reversal risk - market may reverse down");
+            Print("  Expected impact: +$873 improvement");
+         }
+         return true;  // Reject the signal
+      }
+   }
+
+   return false;  // Don't filter - trade is acceptable
 }
 
 //+------------------------------------------------------------------+
@@ -1441,6 +1536,19 @@ void OnTick()
                 return;
             }
 
+            // === LOSS PREVENTION FILTER (PHASE 1 & 2) ===
+            // Filter trades based on historical loss patterns:
+            // - Time-based: Hours 09:00, 02:00, 15:00 (poor performance)
+            // - ADX + Direction: ADX > 45 for SHORT trades
+            // - RSI Extremes: RSI > 70 for LONG, RSI < 30 for SHORT
+            double current_rsi_value = (ArraySize(rsi) > 0) ? rsi[0] : 50.0;
+            double current_adx_value = (ArraySize(adx) > 0) ? adx[0] : 25.0;
+
+            if(ShouldFilterTrade(true, current_rsi_value, current_adx_value)) {
+                // Filter already printed debug message
+                return;
+            }
+
             if(G_Debug) DebugPrint("Buy conditions confirmed. Attempting to open buy position...");
             // Pass signal strength (buy_confirmations) to enable dynamic TP/SL
             bool result = SafeOpenBuyPosition(buy_confirmations);
@@ -1510,6 +1618,19 @@ void OnTick()
             // require additional confirmation from Indicators, SupportResistance, or VolumeAnalysis
             if(RequiresAdditionalConfirmation(false, g_strategy_votes)) {
                 Print("FILTER REJECT [Build ", EA_BUILD, "]: Extreme market conditions - MTF+PA only, need additional confirmation");
+                return;
+            }
+
+            // === LOSS PREVENTION FILTER (PHASE 1 & 2) ===
+            // Filter trades based on historical loss patterns:
+            // - Time-based: Hours 09:00, 02:00, 15:00 (poor performance)
+            // - ADX + Direction: ADX > 45 for SHORT trades
+            // - RSI Extremes: RSI > 70 for LONG, RSI < 30 for SHORT
+            double current_rsi_value = (ArraySize(rsi) > 0) ? rsi[0] : 50.0;
+            double current_adx_value = (ArraySize(adx) > 0) ? adx[0] : 25.0;
+
+            if(ShouldFilterTrade(false, current_rsi_value, current_adx_value)) {
+                // Filter already printed debug message
                 return;
             }
 

@@ -1,1 +1,3 @@
-logs/20251024.log
+*.py
+*.md
+*.json
