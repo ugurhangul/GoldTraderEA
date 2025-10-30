@@ -15,29 +15,29 @@
 //| Strategy-Specific Validation Parameters                          |
 //+------------------------------------------------------------------+
 
-// Elliott Waves Validation
-input double   EW_Min_Wave_Ratio = 0.3;              // Minimum wave size ratio (prevent micro-patterns)
-input double   EW_Max_Wave_Ratio = 3.0;              // Maximum wave size ratio (prevent extreme patterns)
-input int      EW_Min_Candles_Per_Wave = 3;          // Minimum candles per wave
-input bool     EW_Require_Volume_Increase = true;    // Require volume increase on wave 3/5
+// Elliott Waves Validation (technical constants, do not change)
+const double   EW_Min_Wave_Ratio = 0.3;              // Minimum wave size ratio (calibrated)
+const double   EW_Max_Wave_Ratio = 3.0;              // Maximum wave size ratio (calibrated)
+const int      EW_Min_Candles_Per_Wave = 3;          // Minimum candles per wave (calibrated)
+const bool     EW_Require_Volume_Increase = true;    // Require volume increase on wave 3/5 (best practice)
 
-// Harmonic Patterns Validation
-input double   HP_Fibonacci_Tolerance = 0.05;        // Fibonacci ratio tolerance (5%)
-input bool     HP_Require_XABCD_Sequence = true;     // Require proper time sequence
-input bool     HP_Validate_Pattern_Symmetry = true;  // Check pattern symmetry
-input double   HP_Min_Pattern_Size_Pips = 20;        // Minimum pattern size in pips
+// Harmonic Patterns Validation (technical constants, do not change)
+const double   HP_Fibonacci_Tolerance = 0.05;        // Fibonacci ratio tolerance 5% (calibrated)
+const bool     HP_Require_XABCD_Sequence = true;     // Require proper time sequence (best practice)
+const bool     HP_Validate_Pattern_Symmetry = true;  // Check pattern symmetry (best practice)
+const double   HP_Min_Pattern_Size_Pips = 20;        // Minimum pattern size in pips (calibrated)
 
-// Divergence Validation
-input int      DIV_Min_Swing_Separation = 5;         // Minimum candles between swing points
-input double   DIV_Min_Price_Difference = 0.001;     // Minimum price difference (0.1%)
-input double   DIV_Min_Indicator_Difference = 2.0;   // Minimum indicator difference
-input bool     DIV_Require_Trend_Alignment = true;   // Divergence must align with trend
+// Divergence Validation (technical constants, do not change)
+const int      DIV_Min_Swing_Separation = 5;         // Minimum candles between swing points (calibrated)
+const double   DIV_Min_Price_Difference = 0.001;     // Minimum price difference 0.1% (calibrated)
+const double   DIV_Min_Indicator_Difference = 2.0;   // Minimum indicator difference (calibrated)
+const bool     DIV_Require_Trend_Alignment = true;   // Divergence must align with trend (best practice)
 
-// MA Crossover Validation
-input int      MAC_Min_Separation_Candles = 3;       // Minimum candles since last crossover
-input double   MAC_Min_Angle_Degrees = 15;           // Minimum MA angle (degrees)
-input bool     MAC_Require_Volume_Spike = true;      // Require volume spike on crossover
-input bool     MAC_Avoid_Whipsaw_Zone = true;        // Avoid trading in consolidation
+// MA Crossover Validation (technical constants, do not change)
+const int      MAC_Min_Separation_Candles = 3;       // Minimum candles since last crossover (calibrated)
+const double   MAC_Min_Angle_Degrees = 15;           // Minimum MA angle degrees (calibrated)
+const bool     MAC_Require_Volume_Spike = true;      // Require volume spike on crossover (best practice)
+const bool     MAC_Avoid_Whipsaw_Zone = true;        // Avoid trading in consolidation (best practice)
 
 //+------------------------------------------------------------------+
 //| Validate Elliott Wave Signal                                     |

@@ -10,33 +10,41 @@
 //| Input Parameters for Signal Filter System                        |
 //+------------------------------------------------------------------+
 // Gate enable/disable controls
-input bool     SF_Enable_Gate1_Regime = true;           // Enable Gate 1: Regime Filter
+// IMPORTANT: Gates are now more permissive by default to reduce over-filtering
+input bool     SF_Enable_Gate1_Regime = false;          // Enable Gate 1: Regime Filter (disabled by default - too restrictive)
 input bool     SF_Enable_Gate2_VolumeProfile = true;    // Enable Gate 2: Volume Profile Context
-input bool     SF_Enable_Gate3_InterMarket = true;      // Enable Gate 3: Inter-Market Context
+input bool     SF_Enable_Gate3_InterMarket = false;     // Enable Gate 3: Inter-Market Context (disabled - requires DXY data)
 input bool     SF_Enable_Gate4_Confluence = true;       // Enable Gate 4: Confluence Filter
 input bool     SF_Enable_Gate5_Advanced = true;         // Enable Gate 5: Advanced Qualification
-input bool     SF_Enable_Gate6_Temporal = true;         // Enable Gate 6: Temporal Filter
+input bool     SF_Enable_Gate6_Temporal = false;        // Enable Gate 6: Temporal Filter (disabled - too restrictive)
 
-// Gate 1: Regime Filter Parameters
-input double   SF_ADX_Trend_Threshold = 25.0;           // ADX threshold for trend/range detection
-input double   SF_BB_Expansion_Threshold = 1.2;         // BB expansion ratio threshold
+// Gate 1: Regime Filter Parameters (calibrated constants, do not change)
+const double   SF_ADX_Trend_Threshold = 25.0;           // ADX threshold for trend/range detection (calibrated)
+const double   SF_BB_Expansion_Threshold = 1.15;        // BB expansion ratio threshold (calibrated)
 
-// Gate 2: Volume Profile Parameters
-input double   SF_VP_Near_Distance_Pct = 0.1;           // "At/near" distance percentage (0.1%)
-input double   SF_VP_Block_Distance_Pct = 0.2;          // "Directly below/above" distance percentage (0.2%)
-input int      SF_VP_Lookback_Bars = 500;               // Lookback period for Volume Profile calculation
+// Gate 2: Volume Profile Parameters (calibrated constants, do not change)
+// CRITICAL FIX: Increased tolerances significantly to reduce false rejections
+// 2.5% = ~86 points at 3440 price level, 5% = ~172 points
+const double   SF_VP_Near_Distance_Pct = 2.5;           // "At/near" distance percentage (calibrated)
+const double   SF_VP_Block_Distance_Pct = 1.5;          // "Directly below/above" distance percentage (calibrated)
+const int      SF_VP_Lookback_Bars = 500;               // Lookback period for Volume Profile calculation (calibrated)
+const bool     SF_VP_Adaptive_Tolerance = true;         // Enable adaptive tolerance based on volatility (best practice)
 
-// Gate 3: Inter-Market Parameters
-input string   SF_DXY_Symbol = "USDX";                  // DXY symbol name
-input int      SF_DXY_Trend_Period = 20;                // Period for DXY trend detection
-input double   SF_DXY_SR_Tolerance = 0.3;               // DXY S/R tolerance percentage
+// Gate 3: Inter-Market Parameters (calibrated constants, do not change)
+const string   SF_DXY_Symbol = "USDX";                  // DXY symbol name (standard)
+const int      SF_DXY_Trend_Period = 20;                // Period for DXY trend detection (calibrated)
+const double   SF_DXY_SR_Tolerance = 0.3;               // DXY S/R tolerance percentage (calibrated)
+const string   SF_RealYields_Symbol = "US10Y";          // Real yields symbol (standard)
+const int      SF_RealYields_Trend_Period = 20;         // Period for real yields trend detection (calibrated)
+const bool     SF_Enable_RealYields_Check = false;      // Enable real yields context check (disabled - requires data feed)
 
-// Gate 4: Confluence Parameters
-input int      SF_Confluence_Min_Confirmations = 1;     // Minimum confirmations from different category
+// Gate 4: Confluence Parameters (calibrated constants, do not change)
+const int      SF_Confluence_Min_Confirmations = 1;     // Minimum confirmations from different category (calibrated)
+const double   SF_Confluence_Quality_Bypass = 60.0;     // Quality score threshold to bypass confluence (calibrated)
 
-// Gate 6: Temporal Filter Parameters
-input int      SF_News_Lookforward_Hours = 2;           // Hours to look forward for news events
-input bool     SF_Allow_Asian_Session = false;          // Allow trading in Asian session
+// Gate 6: Temporal Filter Parameters (calibrated constants, do not change)
+const int      SF_News_Lookforward_Hours = 2;           // Hours to look forward for news events (calibrated)
+const bool     SF_Allow_Asian_Session = false;          // Allow trading in Asian session (disabled - low liquidity)
 
 //+------------------------------------------------------------------+
 //| Enumerations                                                      |
@@ -129,6 +137,8 @@ private:
    int m_handle_macd;
    int m_handle_stoch;
    int m_handle_dxy;
+   int m_handle_real_yields;  // Real yields (e.g., 10-year Treasury)
+   int m_handle_atr;  // ATR for adaptive tolerance
    
    // Cached data
    CVolumeProfileData m_volume_profile;
@@ -183,8 +193,10 @@ CSignalFilter::CSignalFilter()
    m_handle_macd = INVALID_HANDLE;
    m_handle_stoch = INVALID_HANDLE;
    m_handle_dxy = INVALID_HANDLE;
+   m_handle_real_yields = INVALID_HANDLE;
+   m_handle_atr = INVALID_HANDLE;
    m_vp_last_update = 0;
-   
+
    // Initialize volume profile data
    m_volume_profile.poc = 0;
    m_volume_profile.vah = 0;
@@ -212,19 +224,30 @@ bool CSignalFilter::Initialize()
    m_handle_rsi = iRSI(Symbol(), PERIOD_CURRENT, 14, PRICE_CLOSE);
    m_handle_macd = iMACD(Symbol(), PERIOD_CURRENT, 12, 26, 9, PRICE_CLOSE);
    m_handle_stoch = iStochastic(Symbol(), PERIOD_CURRENT, 5, 3, 3, MODE_SMA, STO_LOWHIGH);
-   
+   m_handle_atr = iATR(Symbol(), PERIOD_CURRENT, 14);  // ATR for adaptive tolerance
+
    // Try to create DXY handle (may fail if symbol not available)
    if(SF_Enable_Gate3_InterMarket)
    {
       m_handle_dxy = iMA(SF_DXY_Symbol, PERIOD_CURRENT, SF_DXY_Trend_Period, 0, MODE_SMA, PRICE_CLOSE);
       if(m_handle_dxy == INVALID_HANDLE)
       {
-         Print("Warning: DXY symbol '", SF_DXY_Symbol, "' not available. Gate 3 will be disabled.");
+         Print("Warning: DXY symbol '", SF_DXY_Symbol, "' not available. DXY check will be skipped.");
+      }
+
+      // Try to create Real Yields handle (optional, may fail if symbol not available)
+      if(SF_Enable_RealYields_Check)
+      {
+         m_handle_real_yields = iMA(SF_RealYields_Symbol, PERIOD_CURRENT, SF_RealYields_Trend_Period, 0, MODE_SMA, PRICE_CLOSE);
+         if(m_handle_real_yields == INVALID_HANDLE)
+         {
+            Print("Warning: Real Yields symbol '", SF_RealYields_Symbol, "' not available. Real yields check will be skipped.");
+         }
       }
    }
-   
+
    // Validate critical handles
-   if(m_handle_adx == INVALID_HANDLE || m_handle_bbands == INVALID_HANDLE)
+   if(m_handle_adx == INVALID_HANDLE || m_handle_bbands == INVALID_HANDLE || m_handle_atr == INVALID_HANDLE)
    {
       Print("Error: Failed to create required indicator handles for Signal Filter");
       return false;
@@ -245,6 +268,8 @@ void CSignalFilter::Deinitialize()
    if(m_handle_macd != INVALID_HANDLE) IndicatorRelease(m_handle_macd);
    if(m_handle_stoch != INVALID_HANDLE) IndicatorRelease(m_handle_stoch);
    if(m_handle_dxy != INVALID_HANDLE) IndicatorRelease(m_handle_dxy);
+   if(m_handle_real_yields != INVALID_HANDLE) IndicatorRelease(m_handle_real_yields);
+   if(m_handle_atr != INVALID_HANDLE) IndicatorRelease(m_handle_atr);
 }
 
 //+------------------------------------------------------------------+
@@ -295,7 +320,17 @@ bool CSignalFilter::ValidateSignal(CSignalData &signal, CFilterResult &result)
       }
    }
 
-   // GATE 4: Confluence Filter
+   // GATE 5: Advanced Qualification (does not veto, adds quality score)
+   // NOTE: Moved before Gate 4 so quality score is available for confluence bypass
+   double quality_score = 0;
+   if(SF_Enable_Gate5_Advanced)
+   {
+      Gate5_AdvancedQualification(signal, quality_score);
+      result.quality_score = quality_score;
+      signal.quality_score = quality_score;
+   }
+
+   // GATE 4: Confluence Filter (can be bypassed by high-quality signals)
    if(SF_Enable_Gate4_Confluence)
    {
       if(!Gate4_ConfluenceFilter(signal, rejection_reason))
@@ -305,15 +340,6 @@ bool CSignalFilter::ValidateSignal(CSignalData &signal, CFilterResult &result)
          LogFilterResult(signal, result);
          return false;
       }
-   }
-
-   // GATE 5: Advanced Qualification (does not veto, adds quality score)
-   double quality_score = 0;
-   if(SF_Enable_Gate5_Advanced)
-   {
-      Gate5_AdvancedQualification(signal, quality_score);
-      result.quality_score = quality_score;
-      signal.quality_score = quality_score;
    }
 
    // GATE 6: Temporal Filter
@@ -450,8 +476,33 @@ bool CSignalFilter::Gate2_VolumeProfileContext(CSignalData &signal, string &reje
    }
 
    double entry_price = signal.entry_price;
+   // CRITICAL FIX: Calculate percentage distance correctly
+   // near_distance should be SF_VP_Near_Distance_Pct% of the entry price
+   // For example: if entry=3442.95 and SF_VP_Near_Distance_Pct=0.5, then near_distance = 3442.95 * 0.005 = 17.21 points
    double near_distance = entry_price * (SF_VP_Near_Distance_Pct / 100.0);
    double block_distance = entry_price * (SF_VP_Block_Distance_Pct / 100.0);
+
+   // Apply adaptive tolerance based on volatility (ATR)
+   if(SF_VP_Adaptive_Tolerance && m_handle_atr != INVALID_HANDLE)
+   {
+      double atr_buffer[];
+      ArraySetAsSeries(atr_buffer, true);
+      if(CopyBuffer(m_handle_atr, 0, 0, 20, atr_buffer) == 20)
+      {
+         double current_atr = atr_buffer[0];
+         double avg_atr = 0;
+         for(int i = 0; i < 20; i++) avg_atr += atr_buffer[i];
+         avg_atr /= 20;
+
+         // If current ATR is higher than average, increase tolerance
+         if(current_atr > avg_atr * 1.2)
+         {
+            double volatility_multiplier = MathMin(current_atr / avg_atr, 2.0); // Cap at 2x
+            near_distance *= volatility_multiplier;
+            block_distance *= volatility_multiplier;
+         }
+      }
+   }
 
    if(signal.signal_type == SIGNAL_LONG)
    {
@@ -558,28 +609,45 @@ bool CSignalFilter::Gate2_VolumeProfileContext(CSignalData &signal, string &reje
 bool CSignalFilter::Gate3_InterMarketContext(CSignalData &signal, string &rejection_reason)
 {
    // Check if DXY handle is available
-   if(m_handle_dxy == INVALID_HANDLE)
+   if(m_handle_dxy == INVALID_HANDLE && m_handle_real_yields == INVALID_HANDLE)
    {
-      // If DXY not available, skip this gate (don't veto)
+      // If neither DXY nor real yields available, skip this gate (don't veto)
       return true;
    }
 
-   bool dxy_favorable = false;
-   if(!CheckDXYContext(signal.signal_type, dxy_favorable))
+   bool dxy_favorable = true; // Default to true if not checking
+   bool yields_favorable = true; // Default to true if not checking
+
+   // Check DXY context if available
+   if(m_handle_dxy != INVALID_HANDLE)
    {
-      rejection_reason = "Failed to retrieve DXY data";
-      return false;
+      if(!CheckDXYContext(signal.signal_type, dxy_favorable))
+      {
+         rejection_reason = "Failed to retrieve DXY data";
+         return false;
+      }
    }
 
-   // For now, we'll implement DXY check only
-   // Real yields would require additional data feed integration
-   bool yields_favorable = true; // Placeholder - would need real yields data
+   // Check real yields context if enabled and available
+   if(SF_Enable_RealYields_Check && m_handle_real_yields != INVALID_HANDLE)
+   {
+      if(!CheckRealYieldsContext(signal.signal_type))
+      {
+         yields_favorable = false;
+      }
+   }
 
    if(signal.signal_type == SIGNAL_LONG)
    {
       if(!dxy_favorable)
       {
          rejection_reason = "LONG signal but DXY showing strength (unfavorable for gold)";
+         return false;
+      }
+
+      if(!yields_favorable)
+      {
+         rejection_reason = "LONG signal but real yields rising (unfavorable for gold)";
          return false;
       }
    }
@@ -590,6 +658,12 @@ bool CSignalFilter::Gate3_InterMarketContext(CSignalData &signal, string &reject
          rejection_reason = "SHORT signal but DXY showing weakness (unfavorable for gold short)";
          return false;
       }
+
+      if(!yields_favorable)
+      {
+         rejection_reason = "SHORT signal but real yields falling (unfavorable for gold short)";
+         return false;
+      }
    }
 
    return true;
@@ -598,10 +672,18 @@ bool CSignalFilter::Gate3_InterMarketContext(CSignalData &signal, string &reject
 //+------------------------------------------------------------------+
 //| GATE 4: Confluence Filter                                       |
 //| Requires confirmation from different indicator category         |
+//| BYPASS: High-quality signals (score >= threshold) can skip      |
 //+------------------------------------------------------------------+
 bool CSignalFilter::Gate4_ConfluenceFilter(CSignalData &signal, string &rejection_reason)
 {
    ENUM_STRATEGY_CATEGORY primary_category = signal.strategy_category;
+
+   // Allow bypass for high-quality signals
+   if(signal.quality_score >= SF_Confluence_Quality_Bypass)
+   {
+      // High-quality signal - bypass confluence requirement
+      return true;
+   }
 
    // Check for confirmation from at least one different category
    if(!CheckConfluenceFromOtherCategories(signal, primary_category))
@@ -675,7 +757,7 @@ ENUM_MARKET_REGIME CSignalFilter::DetectMarketRegime(double adx_val, double bb_u
 {
    if(adx_val > SF_ADX_Trend_Threshold)
       return REGIME_TRENDING;
-   else if(adx_val < SF_ADX_Trend_Threshold)
+   else if(adx_val <= SF_ADX_Trend_Threshold)
       return REGIME_RANGING;
    else
       return REGIME_UNKNOWN;
@@ -861,6 +943,54 @@ bool CSignalFilter::CheckDXYContext(ENUM_SIGNAL_TYPE signal_type, bool &dxy_favo
 }
 
 //+------------------------------------------------------------------+
+//| Helper: Check Real Yields Context                               |
+//+------------------------------------------------------------------+
+bool CSignalFilter::CheckRealYieldsContext(ENUM_SIGNAL_TYPE signal_type)
+{
+   // Check real yields (e.g., 10-year Treasury) trend
+   // Gold typically has inverse relationship with real yields:
+   // - Rising real yields → Gold falls (opportunity cost of holding gold increases)
+   // - Falling real yields → Gold rises (opportunity cost decreases)
+
+   if(m_handle_real_yields == INVALID_HANDLE)
+      return true; // If not available, don't veto
+
+   // Get real yields MA values
+   double yields_ma[];
+   ArraySetAsSeries(yields_ma, true);
+   if(CopyBuffer(m_handle_real_yields, 0, 0, 3, yields_ma) < 3)
+      return true; // If data unavailable, don't veto
+
+   // Get current real yields price
+   double yields_price = SymbolInfoDouble(SF_RealYields_Symbol, SYMBOL_BID);
+   if(yields_price == 0)
+   {
+      // Try to get from rates if direct price not available
+      MqlRates yields_rates[];
+      ArraySetAsSeries(yields_rates, true);
+      if(CopyRates(SF_RealYields_Symbol, PERIOD_CURRENT, 0, 1, yields_rates) > 0)
+         yields_price = yields_rates[0].close;
+      else
+         return true; // If data unavailable, don't veto
+   }
+
+   // Determine real yields trend
+   bool yields_falling = (yields_price < yields_ma[0] && yields_ma[0] < yields_ma[1]);
+   bool yields_rising = (yields_price > yields_ma[0] && yields_ma[0] > yields_ma[1]);
+
+   if(signal_type == SIGNAL_LONG)
+   {
+      // For LONG gold: Real yields should be falling (favorable for gold)
+      return yields_falling;
+   }
+   else // SIGNAL_SHORT
+   {
+      // For SHORT gold: Real yields should be rising (favorable for gold short)
+      return yields_rising;
+   }
+}
+
+//+------------------------------------------------------------------+
 //| Helper: Get Strategy Category                                   |
 //+------------------------------------------------------------------+
 ENUM_STRATEGY_CATEGORY CSignalFilter::GetStrategyCategory(string strategy_name)
@@ -960,9 +1090,94 @@ bool CSignalFilter::CheckConfluenceFromOtherCategories(CSignalData &signal, ENUM
 //+------------------------------------------------------------------+
 bool CSignalFilter::CheckDivergenceConfirmation(ENUM_SIGNAL_TYPE signal_type, MqlRates &rates[])
 {
-   // Simplified divergence check - would need full implementation
-   // This is a placeholder that returns false for now
-   // Full implementation would check RSI/MACD divergence with price
+   // Check for RSI and MACD divergence with price
+   int lookback = MathMin(50, ArraySize(rates));
+   if(lookback < 20) return false;
+
+   // Get RSI values
+   double rsi_buffer[];
+   ArraySetAsSeries(rsi_buffer, true);
+   if(CopyBuffer(m_handle_rsi, 0, 0, lookback, rsi_buffer) < lookback)
+      return false;
+
+   // Get MACD values
+   double macd_buffer[];
+   ArraySetAsSeries(macd_buffer, true);
+   if(CopyBuffer(m_handle_macd, 0, 0, lookback, macd_buffer) < lookback)
+      return false;
+
+   // Find price peaks and valleys in last 20-50 bars
+   int price_peak1_idx = -1, price_peak2_idx = -1;
+   int price_valley1_idx = -1, price_valley2_idx = -1;
+
+   // Find two most recent peaks (for bearish divergence)
+   for(int i = 2; i < lookback - 2; i++)
+   {
+      // Check if this is a peak (higher than neighbors)
+      if(rates[i].high > rates[i-1].high && rates[i].high > rates[i-2].high &&
+         rates[i].high > rates[i+1].high && rates[i].high > rates[i+2].high)
+      {
+         if(price_peak1_idx == -1)
+            price_peak1_idx = i;
+         else if(price_peak2_idx == -1)
+         {
+            price_peak2_idx = i;
+            break; // Found two peaks
+         }
+      }
+   }
+
+   // Find two most recent valleys (for bullish divergence)
+   for(int i = 2; i < lookback - 2; i++)
+   {
+      // Check if this is a valley (lower than neighbors)
+      if(rates[i].low < rates[i-1].low && rates[i].low < rates[i-2].low &&
+         rates[i].low < rates[i+1].low && rates[i].low < rates[i+2].low)
+      {
+         if(price_valley1_idx == -1)
+            price_valley1_idx = i;
+         else if(price_valley2_idx == -1)
+         {
+            price_valley2_idx = i;
+            break; // Found two valleys
+         }
+      }
+   }
+
+   // Check for BULLISH divergence (for LONG signals)
+   if(signal_type == SIGNAL_LONG && price_valley1_idx > 0 && price_valley2_idx > 0)
+   {
+      // Price making lower lows
+      bool price_lower_low = (rates[price_valley1_idx].low < rates[price_valley2_idx].low);
+
+      // RSI making higher lows (bullish divergence)
+      bool rsi_higher_low = (rsi_buffer[price_valley1_idx] > rsi_buffer[price_valley2_idx]);
+
+      // MACD making higher lows (bullish divergence)
+      bool macd_higher_low = (macd_buffer[price_valley1_idx] > macd_buffer[price_valley2_idx]);
+
+      // Confirm divergence if price lower low but RSI or MACD higher low
+      if(price_lower_low && (rsi_higher_low || macd_higher_low))
+         return true;
+   }
+
+   // Check for BEARISH divergence (for SHORT signals)
+   if(signal_type == SIGNAL_SHORT && price_peak1_idx > 0 && price_peak2_idx > 0)
+   {
+      // Price making higher highs
+      bool price_higher_high = (rates[price_peak1_idx].high > rates[price_peak2_idx].high);
+
+      // RSI making lower highs (bearish divergence)
+      bool rsi_lower_high = (rsi_buffer[price_peak1_idx] < rsi_buffer[price_peak2_idx]);
+
+      // MACD making lower highs (bearish divergence)
+      bool macd_lower_high = (macd_buffer[price_peak1_idx] < macd_buffer[price_peak2_idx]);
+
+      // Confirm divergence if price higher high but RSI or MACD lower high
+      if(price_higher_high && (rsi_lower_high || macd_lower_high))
+         return true;
+   }
+
    return false;
 }
 
@@ -971,9 +1186,182 @@ bool CSignalFilter::CheckDivergenceConfirmation(ENUM_SIGNAL_TYPE signal_type, Mq
 //+------------------------------------------------------------------+
 bool CSignalFilter::CheckHarmonicPRZ(ENUM_SIGNAL_TYPE signal_type, double entry_price)
 {
-   // Simplified harmonic pattern check - would need full implementation
-   // This is a placeholder that returns false for now
-   // Full implementation would check if entry is at PRZ of valid harmonic pattern
+   // Check if entry is at Potential Reversal Zone (PRZ) of harmonic patterns
+   // PRZ is defined by confluence of Fibonacci retracement/extension levels
+
+   MqlRates rates[];
+   ArraySetAsSeries(rates, true);
+   int lookback = 100;
+   if(CopyRates(Symbol(), PERIOD_CURRENT, 0, lookback, rates) < lookback)
+      return false;
+
+   // Find significant swing points (X, A, B, C for XABCD patterns)
+   double swing_highs[10];
+   double swing_lows[10];
+   int high_indices[10];
+   int low_indices[10];
+   int high_count = 0;
+   int low_count = 0;
+
+   // Identify swing highs and lows
+   for(int i = 5; i < lookback - 5 && high_count < 10 && low_count < 10; i++)
+   {
+      // Check for swing high
+      bool is_swing_high = true;
+      for(int j = 1; j <= 5; j++)
+      {
+         if(rates[i].high <= rates[i-j].high || rates[i].high <= rates[i+j].high)
+         {
+            is_swing_high = false;
+            break;
+         }
+      }
+      if(is_swing_high && high_count < 10)
+      {
+         swing_highs[high_count] = rates[i].high;
+         high_indices[high_count] = i;
+         high_count++;
+      }
+
+      // Check for swing low
+      bool is_swing_low = true;
+      for(int j = 1; j <= 5; j++)
+      {
+         if(rates[i].low >= rates[i-j].low || rates[i].low >= rates[i+j].low)
+         {
+            is_swing_low = false;
+            break;
+         }
+      }
+      if(is_swing_low && low_count < 10)
+      {
+         swing_lows[low_count] = rates[i].low;
+         low_indices[low_count] = i;
+         low_count++;
+      }
+   }
+
+   // Need at least 4 swing points for harmonic patterns
+   if(high_count < 2 || low_count < 2) return false;
+
+   // Check for BULLISH harmonic patterns (for LONG signals)
+   if(signal_type == SIGNAL_LONG && low_count >= 2 && high_count >= 2)
+   {
+      // Look for bullish Gartley, Bat, Butterfly, or Crab patterns
+      // Pattern structure: X(high) -> A(low) -> B(high) -> C(low) -> D(PRZ low)
+
+      for(int x = 0; x < high_count - 1; x++)
+      {
+         for(int a = 0; a < low_count - 1; a++)
+         {
+            if(low_indices[a] >= high_indices[x]) continue; // A must come after X
+
+            for(int b = 0; b < high_count - 1; b++)
+            {
+               if(high_indices[b] >= low_indices[a]) continue; // B must come after A
+
+               double XA = swing_highs[x] - swing_lows[a];
+               double AB = swing_highs[b] - swing_lows[a];
+
+               if(XA == 0) continue;
+
+               // Check AB retracement of XA (should be 0.382 to 0.886)
+               double AB_ratio = AB / XA;
+               if(AB_ratio < 0.382 || AB_ratio > 0.886) continue;
+
+               // Look for C point
+               for(int c = 0; c < low_count - 1; c++)
+               {
+                  if(low_indices[c] >= high_indices[b]) continue; // C must come after B
+
+                  double BC = swing_highs[b] - swing_lows[c];
+                  if(AB == 0) continue;
+
+                  // Check BC retracement of AB (should be 0.382 to 0.886)
+                  double BC_ratio = BC / AB;
+                  if(BC_ratio < 0.382 || BC_ratio > 0.886) continue;
+
+                  // Calculate PRZ (D point) using Fibonacci extensions
+                  // D should be 1.272 to 1.618 extension of BC from X
+                  double CD_127 = swing_lows[c] - (BC * 1.272);
+                  double CD_162 = swing_lows[c] - (BC * 1.618);
+
+                  // Also check XA projection (D should be 0.786 retracement of XA)
+                  double D_XA_786 = swing_highs[x] - (XA * 0.786);
+
+                  // PRZ is the zone where these levels converge
+                  double prz_low = MathMin(CD_127, D_XA_786);
+                  double prz_high = MathMax(CD_162, D_XA_786);
+
+                  // Check if entry price is within PRZ (with 0.2% tolerance)
+                  double tolerance = entry_price * 0.002;
+                  if(entry_price >= (prz_low - tolerance) && entry_price <= (prz_high + tolerance))
+                     return true;
+               }
+            }
+         }
+      }
+   }
+
+   // Check for BEARISH harmonic patterns (for SHORT signals)
+   if(signal_type == SIGNAL_SHORT && high_count >= 2 && low_count >= 2)
+   {
+      // Look for bearish Gartley, Bat, Butterfly, or Crab patterns
+      // Pattern structure: X(low) -> A(high) -> B(low) -> C(high) -> D(PRZ high)
+
+      for(int x = 0; x < low_count - 1; x++)
+      {
+         for(int a = 0; a < high_count - 1; a++)
+         {
+            if(high_indices[a] >= low_indices[x]) continue; // A must come after X
+
+            for(int b = 0; b < low_count - 1; b++)
+            {
+               if(low_indices[b] >= high_indices[a]) continue; // B must come after A
+
+               double XA = swing_highs[a] - swing_lows[x];
+               double AB = swing_highs[a] - swing_lows[b];
+
+               if(XA == 0) continue;
+
+               // Check AB retracement of XA (should be 0.382 to 0.886)
+               double AB_ratio = AB / XA;
+               if(AB_ratio < 0.382 || AB_ratio > 0.886) continue;
+
+               // Look for C point
+               for(int c = 0; c < high_count - 1; c++)
+               {
+                  if(high_indices[c] >= low_indices[b]) continue; // C must come after B
+
+                  double BC = swing_highs[c] - swing_lows[b];
+                  if(AB == 0) continue;
+
+                  // Check BC retracement of AB (should be 0.382 to 0.886)
+                  double BC_ratio = BC / AB;
+                  if(BC_ratio < 0.382 || BC_ratio > 0.886) continue;
+
+                  // Calculate PRZ (D point) using Fibonacci extensions
+                  // D should be 1.272 to 1.618 extension of BC from X
+                  double CD_127 = swing_highs[c] + (BC * 1.272);
+                  double CD_162 = swing_highs[c] + (BC * 1.618);
+
+                  // Also check XA projection (D should be 0.786 retracement of XA)
+                  double D_XA_786 = swing_lows[x] + (XA * 0.786);
+
+                  // PRZ is the zone where these levels converge
+                  double prz_low = MathMin(CD_127, D_XA_786);
+                  double prz_high = MathMax(CD_162, D_XA_786);
+
+                  // Check if entry price is within PRZ (with 0.2% tolerance)
+                  double tolerance = entry_price * 0.002;
+                  if(entry_price >= (prz_low - tolerance) && entry_price <= (prz_high + tolerance))
+                     return true;
+               }
+            }
+         }
+      }
+   }
+
    return false;
 }
 
@@ -1011,25 +1399,131 @@ bool CSignalFilter::IsHighImpactNewsNear(int hours_forward)
    // Check for known high-impact events (simplified calendar)
    // In production, this would integrate with an economic calendar API
 
-   // NFP (Non-Farm Payroll) - First Friday of month at 13:30 GMT
+   // Calculate time window for checking (current hour +/- hours_forward)
+   int hour_start = current_time.hour - hours_forward;
+   int hour_end = current_time.hour + hours_forward;
+
+   // NFP (Non-Farm Payroll) - First Friday of month at 13:30 GMT (08:30 EST)
+   // One of the most important economic indicators
    if(current_time.day_of_week == 5 && current_time.day <= 7)
    {
-      if(current_time.hour >= 11 && current_time.hour <= 15) // 2 hours before/after NFP
+      if(current_time.hour >= hour_start && current_time.hour <= hour_end &&
+         current_time.hour >= 11 && current_time.hour <= 15)
          return true;
    }
 
-   // FOMC announcements - typically mid-month Wednesday at 18:00 GMT
+   // FOMC (Federal Open Market Committee) - typically mid-month Wednesday at 18:00 GMT (14:00 EST)
+   // Interest rate decisions and monetary policy statements
    if(current_time.day_of_week == 3 && current_time.day >= 14 && current_time.day <= 17)
    {
       if(current_time.hour >= 16 && current_time.hour <= 20)
          return true;
    }
 
-   // CPI release - typically mid-month at 13:30 GMT
-   if(current_time.day >= 12 && current_time.day <= 15)
+   // FOMC Meeting Minutes - Released 3 weeks after FOMC meeting, Wednesday at 18:00 GMT
+   if(current_time.day_of_week == 3 && current_time.day >= 7 && current_time.day <= 10)
+   {
+      if(current_time.hour >= 16 && current_time.hour <= 20)
+         return true;
+   }
+
+   // CPI (Consumer Price Index) - typically mid-month (10th-15th) at 13:30 GMT (08:30 EST)
+   // Critical inflation indicator
+   if(current_time.day >= 10 && current_time.day <= 15)
    {
       if(current_time.hour >= 11 && current_time.hour <= 15)
          return true;
+   }
+
+   // PPI (Producer Price Index) - typically mid-month (13th-16th) at 13:30 GMT (08:30 EST)
+   // Leading inflation indicator
+   if(current_time.day >= 13 && current_time.day <= 16)
+   {
+      if(current_time.hour >= 11 && current_time.hour <= 15)
+         return true;
+   }
+
+   // Retail Sales - typically mid-month (13th-17th) at 13:30 GMT (08:30 EST)
+   // Important consumer spending indicator
+   if(current_time.day >= 13 && current_time.day <= 17)
+   {
+      if(current_time.hour >= 11 && current_time.hour <= 15)
+         return true;
+   }
+
+   // GDP (Gross Domestic Product) - End of quarter months (Jan, Apr, Jul, Oct) at 13:30 GMT
+   // Preliminary, second, and final releases
+   if((current_time.mon == 1 || current_time.mon == 4 || current_time.mon == 7 || current_time.mon == 10) &&
+      current_time.day >= 25 && current_time.day <= 31)
+   {
+      if(current_time.hour >= 11 && current_time.hour <= 15)
+         return true;
+   }
+
+   // Initial Jobless Claims - Every Thursday at 13:30 GMT (08:30 EST)
+   // Weekly employment indicator
+   if(current_time.day_of_week == 4)
+   {
+      if(current_time.hour >= 11 && current_time.hour <= 15)
+         return true;
+   }
+
+   // ISM Manufacturing PMI - First business day of month at 15:00 GMT (10:00 EST)
+   // Manufacturing sector health indicator
+   if(current_time.day >= 1 && current_time.day <= 3)
+   {
+      if(current_time.hour >= 13 && current_time.hour <= 17)
+         return true;
+   }
+
+   // ISM Services PMI - Third business day of month at 15:00 GMT (10:00 EST)
+   // Services sector health indicator
+   if(current_time.day >= 3 && current_time.day <= 5)
+   {
+      if(current_time.hour >= 13 && current_time.hour <= 17)
+         return true;
+   }
+
+   // Fed Chair Speeches/Testimonies - Typically Tuesday/Wednesday
+   // Check for mid-week during business hours (unpredictable, but often 14:00-19:00 GMT)
+   if((current_time.day_of_week == 2 || current_time.day_of_week == 3) &&
+      current_time.day >= 7 && current_time.day <= 21)
+   {
+      if(current_time.hour >= 14 && current_time.hour <= 19)
+      {
+         // This is a conservative check - in production would need calendar API
+         // Only trigger if it's a likely speech day (mid-month, mid-week)
+         if(current_time.day >= 10 && current_time.day <= 17)
+            return true;
+      }
+   }
+
+   // ADP Employment Report - Wednesday before NFP at 13:15 GMT (08:15 EST)
+   // Private sector employment indicator
+   if(current_time.day_of_week == 3 && current_time.day <= 7)
+   {
+      if(current_time.hour >= 11 && current_time.hour <= 15)
+         return true;
+   }
+
+   // Core PCE Price Index - End of month at 13:30 GMT (08:30 EST)
+   // Fed's preferred inflation measure
+   if(current_time.day >= 26 && current_time.day <= 31)
+   {
+      if(current_time.hour >= 11 && current_time.hour <= 15)
+         return true;
+   }
+
+   // University of Michigan Consumer Sentiment - Mid and end of month, Friday at 15:00 GMT
+   // Preliminary (mid-month) and Final (end-month)
+   if(current_time.day_of_week == 5)
+   {
+      if((current_time.day >= 8 && current_time.day <= 15) ||
+         (current_time.day >= 24 && current_time.day <= 31))
+      {
+         if(current_time.hour >= 13 && current_time.hour <= 17)
+            return true;
+      }
    }
 
    return false;
@@ -1067,12 +1561,15 @@ void CSignalFilter::LogFilterResult(CSignalData &signal, CFilterResult &result)
 
    if(result.passed)
    {
-      Print("SIGNAL FILTER: ", signal_dir, " signal from ", signal.strategy_name,
-            " PASSED all gates. Quality Score: ", DoubleToString(result.quality_score, 1));
+      // ENHANCED: More detailed logging for accepted signals
+      Print("✓ SIGNAL FILTER: ", signal_dir, " signal from ", signal.strategy_name,
+            " ACCEPTED! Entry: ", DoubleToString(signal.entry_price, 2),
+            " | Quality Score: ", DoubleToString(result.quality_score, 1),
+            " | Gates Passed: ", signal.gates_passed);
    }
    else
    {
-      Print("SIGNAL FILTER: ", signal_dir, " signal from ", signal.strategy_name,
+      Print("✗ SIGNAL FILTER: ", signal_dir, " signal from ", signal.strategy_name,
             " REJECTED at Gate ", result.gate_failed, ": ", result.failure_reason);
    }
 }

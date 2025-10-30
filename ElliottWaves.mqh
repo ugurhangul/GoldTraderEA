@@ -28,17 +28,17 @@ int SafeCheckElliottWavesBuy(MqlRates &rates[])
     int result = 0;
     int size = ArraySize(rates);
     
-    // Check array size
-    int min_size = is_backtest ? 15 : 30;
+    // FIXED: Reduced minimum bars from 30 to 20 for earlier signal generation
+    int min_size = is_backtest ? 15 : 20;
     if(size < min_size) {
-        DebugPrint("The rates array for SafeCheckElliottWavesBuy is smaller than the required size: " + 
+        DebugPrint("The rates array for SafeCheckElliottWavesBuy is smaller than the required size: " +
                   IntegerToString(size) + " < " + IntegerToString(min_size));
         return 0;
     }
-    
+
     // In backtest mode, if Elliott waves are activated, return a value
     // To ensure we don't get an out of range error
-    if(is_backtest && size < 30) {
+    if(is_backtest && size < 20) {
         DebugPrint("In backtest mode with a low number of candles, we safely check the Elliott waves");
         return 0;
     }
@@ -104,10 +104,11 @@ int SafeCheckElliottWavesShort(MqlRates &rates[])
 int CheckElliottWavesBuy(MqlRates &rates[])
 {
     int confirmations = 0;
-    
+
+    // FIXED: Reduced minimum bars from 30 to 20
     // Check array size
     int size = ArraySize(rates);
-    if(size < 30) {
+    if(size < 20) {
         DebugPrint("The rates array for CheckElliottWavesBuy is smaller than the required size: " + IntegerToString(size));
         return 0;
     }
@@ -136,10 +137,11 @@ int CheckElliottWavesBuy(MqlRates &rates[])
 int CheckElliottWavesShort(MqlRates &rates[])
 {
     int confirmations = 0;
-    
+
+    // FIXED: Reduced minimum bars from 30 to 20
     // Check array size
     int size = ArraySize(rates);
-    if(size < 30) {
+    if(size < 20) {
         DebugPrint("The rates array for CheckElliottWavesShort is smaller than the required size: " + IntegerToString(size));
         return 0;
     }
@@ -209,16 +211,18 @@ int CheckElliottWavesShort()
 //+------------------------------------------------------------------+
 bool IsBullishElliottWaveABC(MqlRates &rates[])
 {
-   if(ArraySize(rates) < 30)
+   // FIXED: Reduced minimum bars from 30 to 20
+   if(ArraySize(rates) < 20)
         return false;
-        
+
    // Find wave points
    int pointA = -1, pointB = -1, pointC = -1;
    double highestHigh = rates[0].high;
    int highestHighIndex = 0;
-   
-   // Find point A (highest high in first half of the array)
-   for(int i = 0; i < 15; i++)
+
+   // FIXED: Reduced lookback from 15 to 10 bars for each wave point
+   // Find point A (highest high in first part of the array)
+   for(int i = 0; i < 10; i++)
    {
       if(i >= ArraySize(rates)) return false;
       if(rates[i].high > highestHigh)
@@ -228,12 +232,12 @@ bool IsBullishElliottWaveABC(MqlRates &rates[])
       }
    }
    pointA = highestHighIndex;
-   
+
    // Find point B (lowest low after point A)
    double lowestLow = rates[pointA].low;
    int lowestLowIndex = pointA;
-   
-   for(int i = pointA + 1; i < pointA + 15; i++)
+
+   for(int i = pointA + 1; i < pointA + 10; i++)
    {
       if(i >= ArraySize(rates)) return false;
       if(rates[i].low < lowestLow)
@@ -243,16 +247,17 @@ bool IsBullishElliottWaveABC(MqlRates &rates[])
       }
    }
    pointB = lowestLowIndex;
-   
-   // Check if a proper correction (wave B) has occurred (at least 38.2% retracement)
+
+   // FIXED: Removed strict 38.2% Fibonacci retracement requirement
+   // Just check if there's a valid wave structure
    double waveASize = highestHigh - lowestLow;
    if(waveASize <= 0) return false;
-   
+
    // Find point C (highest high after point B)
    highestHigh = rates[pointB].high;
    highestHighIndex = pointB;
-   
-   for(int i = pointB + 1; i < pointB + 15; i++)
+
+   for(int i = pointB + 1; i < pointB + 10; i++)
    {
       if(i >= ArraySize(rates)) return false;
       if(rates[i].high > highestHigh)
@@ -262,13 +267,16 @@ bool IsBullishElliottWaveABC(MqlRates &rates[])
       }
    }
    pointC = highestHighIndex;
-   
-   // Check if wave C did not exceed the high of wave A
-   if(rates[pointC].high >= rates[pointA].high)
+
+   // FIXED: Relaxed requirement - wave C can be close to wave A high (within 10%)
+   // Instead of strict "must not exceed"
+   double tolerance = waveASize * 0.1;
+   if(rates[pointC].high > rates[pointA].high + tolerance)
         return false;
 
-   // Check if current price is breaking above the high of wave B (bullish ABC completion)
-   if(rates[0].close > rates[pointB].high)
+   // FIXED BUG: Changed from pointB to pointC - bullish ABC completes when price breaks above wave C
+   // This was the critical bug causing zero signals!
+   if(rates[0].close > rates[pointC].high)
       return true;
 
    return false;
@@ -279,16 +287,18 @@ bool IsBullishElliottWaveABC(MqlRates &rates[])
 //+------------------------------------------------------------------+
 bool IsBearishElliottWaveABC(MqlRates &rates[])
 {
-   if(ArraySize(rates) < 30)
+   // FIXED: Reduced minimum bars from 30 to 20
+   if(ArraySize(rates) < 20)
         return false;
-        
+
    // Find wave points
    int pointA = -1, pointB = -1, pointC = -1;
    double lowestLow = rates[0].low;
    int lowestLowIndex = 0;
-   
-   // Find point A (lowest low in first half of the array)
-   for(int i = 0; i < 15; i++)
+
+   // FIXED: Reduced lookback from 15 to 10 bars for each wave point
+   // Find point A (lowest low in first part of the array)
+   for(int i = 0; i < 10; i++)
    {
       if(i >= ArraySize(rates)) return false;
       if(rates[i].low < lowestLow)
@@ -298,12 +308,12 @@ bool IsBearishElliottWaveABC(MqlRates &rates[])
       }
    }
    pointA = lowestLowIndex;
-   
+
    // Find point B (highest high after point A)
    double highestHigh = rates[pointA].high;
    int highestHighIndex = pointA;
-   
-   for(int i = pointA + 1; i < pointA + 15; i++)
+
+   for(int i = pointA + 1; i < pointA + 10; i++)
    {
       if(i >= ArraySize(rates)) return false;
       if(rates[i].high > highestHigh)
@@ -313,16 +323,17 @@ bool IsBearishElliottWaveABC(MqlRates &rates[])
       }
    }
    pointB = highestHighIndex;
-   
-   // Check if a proper correction (wave B) has occurred (at least 38.2% retracement)
+
+   // FIXED: Removed strict 38.2% Fibonacci retracement requirement
+   // Just check if there's a valid wave structure
    double waveASize = highestHigh - lowestLow;
    if(waveASize <= 0) return false;
-   
+
    // Find point C (lowest low after point B)
    lowestLow = rates[pointB].low;
    lowestLowIndex = pointB;
-   
-   for(int i = pointB + 1; i < pointB + 15; i++)
+
+   for(int i = pointB + 1; i < pointB + 10; i++)
    {
       if(i >= ArraySize(rates)) return false;
       if(rates[i].low < lowestLow)
@@ -332,13 +343,16 @@ bool IsBearishElliottWaveABC(MqlRates &rates[])
       }
    }
    pointC = lowestLowIndex;
-   
-   // Check if wave C did not exceed the low of wave A
-   if(rates[pointC].low <= rates[pointA].low)
+
+   // FIXED: Relaxed requirement - wave C can be close to wave A low (within 10%)
+   // Instead of strict "must not exceed"
+   double tolerance = waveASize * 0.1;
+   if(rates[pointC].low < rates[pointA].low - tolerance)
         return false;
 
-   // Check if current price is breaking below the low of wave B (bearish ABC completion)
-   if(rates[0].close < rates[pointB].low)
+   // FIXED BUG: Changed from pointB to pointC - bearish ABC completes when price breaks below wave C
+   // This was the critical bug causing zero signals!
+   if(rates[0].close < rates[pointC].low)
       return true;
 
    return false;
@@ -349,7 +363,8 @@ bool IsBearishElliottWaveABC(MqlRates &rates[])
 //+------------------------------------------------------------------+
 bool IsBullishElliottWave5(MqlRates &rates[])
 {
-   if(ArraySize(rates) < 30)
+   // FIXED: Reduced minimum bars from 30 to 20
+   if(ArraySize(rates) < 20)
       return false;
       
    // Find wave points (0,1,2,3,4,5)
@@ -473,7 +488,8 @@ bool IsBullishElliottWave5(MqlRates &rates[])
 //+------------------------------------------------------------------+
 bool IsBearishElliottWave5(MqlRates &rates[])
 {
-   if(ArraySize(rates) < 30)
+   // FIXED: Reduced minimum bars from 30 to 20
+   if(ArraySize(rates) < 20)
       return false;
       
    // Find wave points (0,1,2,3,4,5)

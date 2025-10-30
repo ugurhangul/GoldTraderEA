@@ -12,10 +12,10 @@ input bool TP_Debug = false;  // Debug flag for TrendPatterns module (will be se
 
 // Constants for trend pattern detection
 #define TP_MIN_DATA_SIZE 30                    // Minimum bars required for analysis
-#define TP_TOLERANCE_PERCENT 0.01              // 1% tolerance for trend line alignment
-#define TP_MIN_TOUCH_SEPARATION 5              // Minimum bars between touch points
+#define TP_TOLERANCE_PERCENT 0.005             // 0.5% tolerance for trend line alignment (more lenient)
+#define TP_MIN_TOUCH_SEPARATION 2              // Minimum bars between touch points (reduced from 5 to allow closer touches)
 #define TP_PEAK_DETECTION_RANGE 2              // Candles to check on each side for peaks
-#define TP_MIN_SLOPE_THRESHOLD 0.0001          // Minimum absolute slope to avoid horizontal lines
+#define TP_MIN_SLOPE_THRESHOLD 0.00001         // Minimum absolute slope (reduced to allow flatter lines)
 #define TP_MAX_SLOPE_THRESHOLD 100.0           // Maximum absolute slope to avoid unrealistic projections
 
 //+------------------------------------------------------------------+

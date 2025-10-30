@@ -30,7 +30,8 @@ extern bool is_backtest;
 #define BAT_POINT_C_MAX              0.886
 #define BAT_POINT_D_RETRACEMENT      0.886  // D is 0.886 retracement of XA
 
-#define TOLERANCE_LEVEL 0.02 // Tolerance level for pattern detection (2 percent)
+// FIXED: Increased tolerance from 2% to 5% for more flexible pattern detection
+#define TOLERANCE_LEVEL 0.05 // Tolerance level for pattern detection (5 percent)
 
 // DebugPrint and CheckArrayAccess functions must be defined in the main file
 #import "GoldTraderEA_cleaned.mq5"
@@ -46,17 +47,18 @@ int SafeCheckHarmonicPatternsBuy(MqlRates &rates[])
     int result = 0;
     int size = ArraySize(rates);
     
+    // FIXED: Reduced minimum bars from 40 to 25 for earlier signal generation
     // Check array size
-    int min_size = is_backtest ? 20 : 40;
+    int min_size = is_backtest ? 20 : 25;
     if(size < min_size) {
-        DebugPrint("The rates array for SafeCheckHarmonicPatternsBuy is smaller than the required size: " + 
+        DebugPrint("The rates array for SafeCheckHarmonicPatternsBuy is smaller than the required size: " +
                   IntegerToString(size) + " < " + IntegerToString(min_size));
         return 0;
     }
-    
+
     // In backtest mode, if harmonic patterns are activated, return a value
     // To ensure we don't get an out of range error
-    if(is_backtest && size < 40) {
+    if(is_backtest && size < 25) {
         DebugPrint("In backtest mode with low candle count, we safely check harmonic patterns");
         return 0;
     }
@@ -284,8 +286,9 @@ bool FindXABCDPoints(MqlRates &rates[], int &xIndex, int &aIndex, int &bIndex, i
 //+------------------------------------------------------------------+
 bool IsBullishGartley(MqlRates &rates[])
 {
+    // FIXED: Reduced minimum bars from 40 to 25
     int size = ArraySize(rates);
-    if(size < 40) return false;
+    if(size < 25) return false;
 
     int xIndex, aIndex, bIndex, cIndex, dIndex;
     if(!FindXABCDPoints(rates, xIndex, aIndex, bIndex, cIndex, dIndex, true))
@@ -341,8 +344,9 @@ bool IsBullishGartley(MqlRates &rates[])
 //+------------------------------------------------------------------+
 bool IsBearishGartley(MqlRates &rates[])
 {
+    // FIXED: Reduced minimum bars from 40 to 25
     int size = ArraySize(rates);
-    if(size < 40) return false;
+    if(size < 25) return false;
 
     int xIndex, aIndex, bIndex, cIndex, dIndex;
     if(!FindXABCDPoints(rates, xIndex, aIndex, bIndex, cIndex, dIndex, false))
@@ -398,8 +402,9 @@ bool IsBearishGartley(MqlRates &rates[])
 //+------------------------------------------------------------------+
 bool IsBullishButterfly(MqlRates &rates[])
 {
+    // FIXED: Reduced minimum bars from 40 to 25
     int size = ArraySize(rates);
-    if(size < 40) return false;
+    if(size < 25) return false;
 
     int xIndex, aIndex, bIndex, cIndex, dIndex;
     if(!FindXABCDPoints(rates, xIndex, aIndex, bIndex, cIndex, dIndex, true))
@@ -461,8 +466,9 @@ bool IsBullishButterfly(MqlRates &rates[])
 //+------------------------------------------------------------------+
 bool IsBearishButterfly(MqlRates &rates[])
 {
+    // FIXED: Reduced minimum bars from 40 to 25
     int size = ArraySize(rates);
-    if(size < 40) return false;
+    if(size < 25) return false;
 
     int xIndex, aIndex, bIndex, cIndex, dIndex;
     if(!FindXABCDPoints(rates, xIndex, aIndex, bIndex, cIndex, dIndex, false))
@@ -524,8 +530,9 @@ bool IsBearishButterfly(MqlRates &rates[])
 //+------------------------------------------------------------------+
 bool IsBullishBat(MqlRates &rates[])
 {
+    // FIXED: Reduced minimum bars from 40 to 25
     int size = ArraySize(rates);
-    if(size < 40) return false;
+    if(size < 25) return false;
 
     int xIndex, aIndex, bIndex, cIndex, dIndex;
     if(!FindXABCDPoints(rates, xIndex, aIndex, bIndex, cIndex, dIndex, true))
@@ -566,7 +573,10 @@ bool IsBullishBat(MqlRates &rates[])
                    (bcRetracement <= BAT_POINT_C_MAX + TOLERANCE_LEVEL);
     bool validXD = MathAbs(xdRetracement - BAT_POINT_D_RETRACEMENT) <= TOLERANCE_LEVEL;
 
-    if(validAB && validBC && validXD) {
+    // D should be between X and A for bullish Bat pattern (not beyond X)
+    bool dBetweenXandA = (dPoint > xPoint) && (dPoint < aPoint);
+
+    if(validAB && validBC && validXD && dBetweenXandA) {
         DebugPrint("Bullish Bat pattern: XA=" + DoubleToString(xaMove, 5) +
                    ", AB Ratio=" + DoubleToString(abRatio, 3) +
                    ", BC Retracement=" + DoubleToString(bcRetracement, 3) +
@@ -582,8 +592,9 @@ bool IsBullishBat(MqlRates &rates[])
 //+------------------------------------------------------------------+
 bool IsBearishBat(MqlRates &rates[])
 {
+    // FIXED: Reduced minimum bars from 40 to 25
     int size = ArraySize(rates);
-    if(size < 40) return false;
+    if(size < 25) return false;
 
     int xIndex, aIndex, bIndex, cIndex, dIndex;
     if(!FindXABCDPoints(rates, xIndex, aIndex, bIndex, cIndex, dIndex, false))
@@ -624,7 +635,10 @@ bool IsBearishBat(MqlRates &rates[])
                    (bcRetracement <= BAT_POINT_C_MAX + TOLERANCE_LEVEL);
     bool validXD = MathAbs(xdRetracement - BAT_POINT_D_RETRACEMENT) <= TOLERANCE_LEVEL;
 
-    if(validAB && validBC && validXD) {
+    // D should be between X and A for bearish Bat pattern (not beyond X)
+    bool dBetweenXandA = (dPoint < xPoint) && (dPoint > aPoint);
+
+    if(validAB && validBC && validXD && dBetweenXandA) {
         DebugPrint("Bearish Bat pattern: XA=" + DoubleToString(xaMove, 5) +
                    ", AB Ratio=" + DoubleToString(abRatio, 3) +
                    ", BC Retracement=" + DoubleToString(bcRetracement, 3) +

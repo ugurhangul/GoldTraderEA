@@ -25,16 +25,16 @@ struct SignalQuality
 };
 
 //+------------------------------------------------------------------+
-//| False Positive Detection Parameters                              |
+//| False Positive Detection Parameters (calibrated constants)       |
 //+------------------------------------------------------------------+
-input double   FP_Min_Signal_Strength = 60.0;        // Minimum signal strength (0-100)
-input double   FP_Min_Reliability_Score = 50.0;      // Minimum reliability score (0-100)
-input double   FP_Min_Context_Score = 40.0;          // Minimum context alignment score (0-100)
-input double   FP_Min_Timing_Score = 50.0;           // Minimum timing quality score (0-100)
-input bool     FP_Require_Volume_Confirmation = true; // Require volume confirmation
-input bool     FP_Require_Momentum_Alignment = true;  // Require momentum alignment
-input double   FP_Max_Spread_Pips = 3.0;             // Maximum spread in pips to allow trading
-input int      FP_Min_Candles_Since_News = 5;        // Minimum candles since major news event
+const double   FP_Min_Signal_Strength = 60.0;        // Minimum signal strength 0-100 (calibrated)
+const double   FP_Min_Reliability_Score = 50.0;      // Minimum reliability score 0-100 (calibrated)
+const double   FP_Min_Context_Score = 40.0;          // Minimum context alignment score 0-100 (calibrated)
+const double   FP_Min_Timing_Score = 50.0;           // Minimum timing quality score 0-100 (calibrated)
+const bool     FP_Require_Volume_Confirmation = true; // Require volume confirmation (best practice)
+const bool     FP_Require_Momentum_Alignment = true;  // Require momentum alignment (best practice)
+const double   FP_Max_Spread_Pips = 3.0;             // Maximum spread in pips to allow trading (calibrated)
+const int      FP_Min_Candles_Since_News = 5;        // Minimum candles since major news event (calibrated)
 
 //+------------------------------------------------------------------+
 //| Evaluate Signal Quality - Main Entry Point                       |

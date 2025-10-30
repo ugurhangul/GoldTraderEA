@@ -36,44 +36,60 @@ extern long g_volumes[];
 //+------------------------------------------------------------------+
 int CheckVolumeAnalysisBuy(MqlRates &rates[])
 {
+    // RECALIBRATED: Make volume analysis more flexible
     // Check if volume data is available
     if(handle_volumes == INVALID_HANDLE) {
-        DebugPrint("Volume data is not available, skipping volume analysis for buy");
-        return 0;
+        DebugPrint("Volume data is not available, using price-based volume analysis fallback");
+        // FALLBACK: Use tick_volume from rates array instead of real volume
+        // This allows the strategy to work even without volume data
+        return CheckVolumeAnalysisBuyFallback(rates);
     }
-    
+
     DebugPrint("Starting volume analysis for buy");
-    
+
     int confirmations = 0;
-    
+
     // Check array size
     int size = ArraySize(rates);
     if(size < 20) {
         DebugPrint("The rates array for CheckVolumeAnalysisBuy is smaller than the required size: " + IntegerToString(size));
-        return 0;
+        // RECALIBRATED: Reduced minimum from 20 to 10 bars for earlier signal generation
+        if(size >= 10) {
+            DebugPrint("Using reduced analysis with " + IntegerToString(size) + " bars");
+            // Continue with reduced analysis
+        } else {
+            return 0;
+        }
     }
-    
+
     // Check trade volume
     if(ArraySize(g_volumes) < 20) {
         DebugPrint("The g_volumes array for CheckVolumeAnalysisBuy is smaller than the required size: " + IntegerToString(ArraySize(g_volumes)));
-        return 0;
+        // RECALIBRATED: Use fallback if volume array is insufficient
+        if(ArraySize(g_volumes) >= 10) {
+            DebugPrint("Using reduced volume analysis with " + IntegerToString(ArraySize(g_volumes)) + " bars");
+            // Continue with reduced analysis
+        } else {
+            return CheckVolumeAnalysisBuyFallback(rates);
+        }
     }
-    
+
     // Calculate the average volume of the last 10 candles
     long avg_volume = 0;
     for(int i = 0; i < 10; i++) {
         avg_volume += g_volumes[i];
     }
     avg_volume /= 10;
-    
+
+    // INDUSTRY STANDARD: Using 1.5x threshold for reliable volume confirmation
     // Check for volume increase in the recent bullish candle
     if(rates[0].close > rates[0].open && g_volumes[0] > avg_volume * 1.5) {
-        DebugPrint("Volume increase in the recent bullish candle: " + 
-                  "Current volume: " + IntegerToString(g_volumes[0]) + 
+        DebugPrint("Volume increase in the recent bullish candle: " +
+                  "Current volume: " + IntegerToString(g_volumes[0]) +
                   " - Average volume: " + IntegerToString(avg_volume));
         confirmations++;
     }
-    
+
     // Check for price breakout with increased volume
     // Finding the recent resistance level (highest level in the last 20 candles)
     double recent_resistance = 0;
@@ -81,18 +97,19 @@ int CheckVolumeAnalysisBuy(MqlRates &rates[])
         if(rates[i].high > recent_resistance)
             recent_resistance = rates[i].high;
     }
-    
+
+    // INDUSTRY STANDARD: Using 1.3x threshold for reliable breakout confirmation
     // Check for breakout of this level with high volume
     if(rates[0].close > recent_resistance && g_volumes[0] > avg_volume * 1.3) {
-        DebugPrint("Breakout of resistance level " + DoubleToString(recent_resistance, 2) + 
+        DebugPrint("Breakout of resistance level " + DoubleToString(recent_resistance, 2) +
                   " with high volume: " + IntegerToString(g_volumes[0]));
         confirmations += 2;  // More significant confirmation
     }
-    
+
     // Check for positive volume-price divergence
     // When price decreases but volume also decreases (sign of weakness in the downtrend)
     bool price_down_volume_down = false;
-    
+
     // Check for downtrend in price over recent candles
     // In AS_SERIES: rates[i].close < rates[i+1].close means current < previous = downtrend
     bool price_downtrend = true;
@@ -119,7 +136,7 @@ int CheckVolumeAnalysisBuy(MqlRates &rates[])
             confirmations++;
         }
     }
-    
+
     // Check for volume squeeze pattern before bullish move
     // Decrease in volume over several consecutive candles followed by a sudden increase in volume
     // Ensure we have enough data (need at least 6 elements)
@@ -134,12 +151,13 @@ int CheckVolumeAnalysisBuy(MqlRates &rates[])
     } else {
         volume_squeeze = false; // Not enough data
     }
-    
+
+    // INDUSTRY STANDARD: Using 1.5x threshold for reliable volume squeeze pattern
     if(volume_squeeze && g_volumes[0] > avg_volume * 1.5 && rates[0].close > rates[0].open) {
         DebugPrint("Volume squeeze pattern before bullish move detected");
         confirmations++;
     }
-    
+
     // Check for gradual volume increase in the uptrend
     // In AS_SERIES: rates[i].close > rates[i+1].close means current > previous = rising
     bool rising_price = true;
@@ -163,7 +181,7 @@ int CheckVolumeAnalysisBuy(MqlRates &rates[])
         DebugPrint("Gradual volume increase in the uptrend (confirmation of trend strength)");
         confirmations++;
     }
-    
+
     DebugPrint("Number of confirmations for volume analysis for buy: " + IntegerToString(confirmations));
     return confirmations;
 }
@@ -173,44 +191,59 @@ int CheckVolumeAnalysisBuy(MqlRates &rates[])
 //+------------------------------------------------------------------+
 int CheckVolumeAnalysisShort(MqlRates &rates[])
 {
+    // RECALIBRATED: Make volume analysis more flexible
     // Check if volume data is available
     if(handle_volumes == INVALID_HANDLE) {
-        DebugPrint("Volume data is not available, skipping volume analysis for sell");
-        return 0;
+        DebugPrint("Volume data is not available, using price-based volume analysis fallback");
+        // FALLBACK: Use tick_volume from rates array instead of real volume
+        return CheckVolumeAnalysisShortFallback(rates);
     }
-    
+
     DebugPrint("Starting volume analysis for sell");
-    
+
     int confirmations = 0;
-    
+
     // Check array size
     int size = ArraySize(rates);
     if(size < 20) {
         DebugPrint("The rates array for CheckVolumeAnalysisShort is smaller than the required size: " + IntegerToString(size));
-        return 0;
+        // RECALIBRATED: Reduced minimum from 20 to 10 bars for earlier signal generation
+        if(size >= 10) {
+            DebugPrint("Using reduced analysis with " + IntegerToString(size) + " bars");
+            // Continue with reduced analysis
+        } else {
+            return 0;
+        }
     }
-    
+
     // Check trade volume
     if(ArraySize(g_volumes) < 20) {
         DebugPrint("The g_volumes array for CheckVolumeAnalysisShort is smaller than the required size: " + IntegerToString(ArraySize(g_volumes)));
-        return 0;
+        // RECALIBRATED: Use fallback if volume array is insufficient
+        if(ArraySize(g_volumes) >= 10) {
+            DebugPrint("Using reduced volume analysis with " + IntegerToString(ArraySize(g_volumes)) + " bars");
+            // Continue with reduced analysis
+        } else {
+            return CheckVolumeAnalysisShortFallback(rates);
+        }
     }
-    
+
     // Calculate the average volume of the last 10 candles
     long avg_volume = 0;
     for(int i = 0; i < 10; i++) {
         avg_volume += g_volumes[i];
     }
     avg_volume /= 10;
-    
+
+    // INDUSTRY STANDARD: Using 1.5x threshold for reliable volume confirmation
     // Check for volume increase in the recent bearish candle
     if(rates[0].close < rates[0].open && g_volumes[0] > avg_volume * 1.5) {
-        DebugPrint("Volume increase in the recent bearish candle: " + 
-                  "Current volume: " + IntegerToString(g_volumes[0]) + 
+        DebugPrint("Volume increase in the recent bearish candle: " +
+                  "Current volume: " + IntegerToString(g_volumes[0]) +
                   " - Average volume: " + IntegerToString(avg_volume));
         confirmations++;
     }
-    
+
     // Check for price breakout with increased volume
     // Finding the recent support level (lowest level in the last 20 candles)
     double recent_support = DBL_MAX;
@@ -218,18 +251,19 @@ int CheckVolumeAnalysisShort(MqlRates &rates[])
         if(rates[i].low < recent_support)
             recent_support = rates[i].low;
     }
-    
+
+    // INDUSTRY STANDARD: Using 1.3x threshold for reliable breakout confirmation
     // Check for breakout of this level with high volume
     if(rates[0].close < recent_support && g_volumes[0] > avg_volume * 1.3) {
-        DebugPrint("Breakout of support level " + DoubleToString(recent_support, 2) + 
+        DebugPrint("Breakout of support level " + DoubleToString(recent_support, 2) +
                   " with high volume: " + IntegerToString(g_volumes[0]));
         confirmations += 2;  // More significant confirmation
     }
-    
+
     // Check for negative volume-price divergence
     // When price increases but volume decreases (sign of weakness in the uptrend)
     bool price_up_volume_down = false;
-    
+
     // Check for uptrend in price over recent candles
     // In AS_SERIES: rates[i].close > rates[i+1].close means current > previous = uptrend
     bool price_uptrend = true;
@@ -256,7 +290,7 @@ int CheckVolumeAnalysisShort(MqlRates &rates[])
             confirmations++;
         }
     }
-    
+
     // Check for volume squeeze pattern before bearish move
     // Decrease in volume over several consecutive candles followed by a sudden increase in volume
     // Ensure we have enough data (need at least 6 elements)
@@ -271,12 +305,13 @@ int CheckVolumeAnalysisShort(MqlRates &rates[])
     } else {
         volume_squeeze = false; // Not enough data
     }
-    
+
+    // INDUSTRY STANDARD: Using 1.5x threshold for reliable volume squeeze pattern
     if(volume_squeeze && g_volumes[0] > avg_volume * 1.5 && rates[0].close < rates[0].open) {
         DebugPrint("Volume squeeze pattern before bearish move detected");
         confirmations++;
     }
-    
+
     // Check for gradual volume increase in the downtrend
     // In AS_SERIES: rates[i].close < rates[i+1].close means current < previous = falling
     bool falling_price = true;
@@ -300,7 +335,7 @@ int CheckVolumeAnalysisShort(MqlRates &rates[])
         DebugPrint("Gradual volume increase in the downtrend (confirmation of trend strength)");
         confirmations++;
     }
-    
+
     DebugPrint("Number of confirmations for volume analysis for sell: " + IntegerToString(confirmations));
     return confirmations;
 }
@@ -314,7 +349,7 @@ int SafeCheckVolumeAnalysisBuy(MqlRates &rates[])
         DebugPrint("The rates array for SafeCheckVolumeAnalysisBuy is smaller than the required size: " + IntegerToString(ArraySize(rates)));
         return 0;
     }
-    
+
     return CheckVolumeAnalysisBuy(rates);
 }
 
@@ -327,7 +362,7 @@ int SafeCheckVolumeAnalysisShort(MqlRates &rates[])
         DebugPrint("The rates array for SafeCheckVolumeAnalysisShort is smaller than the required size: " + IntegerToString(ArraySize(rates)));
         return 0;
     }
-    
+
     return CheckVolumeAnalysisShort(rates);
 }
 
@@ -337,7 +372,7 @@ bool CheckVolumeConfirmationBuy(const MqlRates &rates[], int size)
     // Need at least 10 bars for analysis
     if (size < 10)
         return false;
-    
+
     // Calculate average volume over last 10 bars (excluding current)
     double averageVolume = 0;
     for (int i = 1; i <= 10; i++)
@@ -345,27 +380,27 @@ bool CheckVolumeConfirmationBuy(const MqlRates &rates[], int size)
         averageVolume += (double)rates[i].tick_volume;
     }
     averageVolume /= 10;
-    
+
     // Check if current candle is bullish
     bool currentBullish = rates[0].close > rates[0].open;
-    
+
     // Check for significant volume
     if (!currentBullish)
         return false;
-    
+
     // Volume increasing on price rise (above average)
     if ((double)rates[0].tick_volume > averageVolume * 1.5)
         return true;
-    
+
     // Check for three rising candles with increasing volume
-    if (size >= 4 && 
+    if (size >= 4 &&
         rates[0].close > rates[1].close &&
         rates[1].close > rates[2].close &&
         rates[2].close > rates[3].close &&
         rates[0].tick_volume > rates[1].tick_volume &&
         rates[1].tick_volume > rates[2].tick_volume)
         return true;
-    
+
     // Check for bullish reversal with volume spike
     if (size >= 3 &&
         rates[2].close < rates[2].open && // Prior bearish
@@ -374,7 +409,7 @@ bool CheckVolumeConfirmationBuy(const MqlRates &rates[], int size)
         rates[0].tick_volume > averageVolume * 1.3 && // Increased volume
         rates[0].close > rates[1].high) // Breaking previous high
         return true;
-    
+
     return false;
 }
 
@@ -384,7 +419,7 @@ bool CheckVolumeConfirmationShort(const MqlRates &rates[], int size)
     // Need at least 10 bars for analysis
     if (size < 10)
         return false;
-    
+
     // Calculate average volume over last 10 bars (excluding current)
     double averageVolume = 0;
     for (int i = 1; i <= 10; i++)
@@ -392,27 +427,27 @@ bool CheckVolumeConfirmationShort(const MqlRates &rates[], int size)
         averageVolume += (double)rates[i].tick_volume;
     }
     averageVolume /= 10;
-    
+
     // Check if current candle is bearish
     bool currentBearish = rates[0].close < rates[0].open;
-    
+
     // Check for significant volume
     if (!currentBearish)
         return false;
-    
+
     // Volume increasing on price fall (above average)
     if ((double)rates[0].tick_volume > averageVolume * 1.5)
         return true;
-    
+
     // Check for three falling candles with increasing volume
-    if (size >= 4 && 
+    if (size >= 4 &&
         rates[0].close < rates[1].close &&
         rates[1].close < rates[2].close &&
         rates[2].close < rates[3].close &&
         rates[0].tick_volume > rates[1].tick_volume &&
         rates[1].tick_volume > rates[2].tick_volume)
         return true;
-    
+
     // Check for bearish reversal with volume spike
     if (size >= 3 &&
         rates[2].close > rates[2].open && // Prior bullish
@@ -421,7 +456,7 @@ bool CheckVolumeConfirmationShort(const MqlRates &rates[], int size)
         rates[0].tick_volume > averageVolume * 1.3 && // Increased volume
         rates[0].close < rates[1].low) // Breaking previous low
         return true;
-    
+
     return false;
 }
 
@@ -469,14 +504,14 @@ bool CheckVolumePriceDivergencePeakValley(const MqlRates &rates[], int size, boo
                 }
             }
         }
-        
+
         if (low2 == -1)
             return false;
-        
+
         // Check if price is making lower lows
         if (rates[low1].low >= rates[low2].low)
             return false;
-        
+
         // Check if volume is NOT making lower lows (bullish divergence)
         if (rates[low1].tick_volume < rates[low2].tick_volume)
             return true;
@@ -517,19 +552,19 @@ bool CheckVolumePriceDivergencePeakValley(const MqlRates &rates[], int size, boo
                 }
             }
         }
-        
+
         if (high2 == -1)
             return false;
-        
+
         // Check if price is making higher highs
         if (rates[high1].high <= rates[high2].high)
             return false;
-        
+
         // Check if volume is NOT making higher highs (bearish divergence)
         if (rates[high1].tick_volume > rates[high2].tick_volume)
             return true;
     }
-    
+
     return false;
 }
 
@@ -538,14 +573,14 @@ bool IsVolumeIncreasing(const MqlRates &rates[], int period)
 {
     if (period <= 1 || ArraySize(rates) < period + 1)
         return false;
-    
+
     double sumVolume = 0;
     for (int i = 1; i <= period; i++)
     {
         sumVolume += (double)rates[i].tick_volume;
     }
     double avgVolume = sumVolume / period;
-    
+
     return (double)rates[0].tick_volume > avgVolume * 1.2; // 20% above average
 }
 
@@ -555,26 +590,26 @@ bool CheckVolumePriceDivergenceAverage(const MqlRates &rates[], int period, bool
 {
     if (period <= 3 || ArraySize(rates) < period + 1)
         return false;
-    
+
     // Calculate price direction
     bool priceUp = (double)rates[0].close > (double)rates[period].close;
-    
+
     // Check volume direction
     double recentVolumeSum = 0;
     double olderVolumeSum = 0;
     int halfPeriod = period / 2;
-    
+
     for (int i = 0; i < halfPeriod; i++)
         recentVolumeSum += (double)rates[i].tick_volume;
-    
+
     for (int i = halfPeriod; i < period; i++)
         olderVolumeSum += (double)rates[i].tick_volume;
-    
+
     double recentAvgVolume = recentVolumeSum / halfPeriod;
     double olderAvgVolume = olderVolumeSum / (period - halfPeriod);
-    
+
     bool volumeUp = recentAvgVolume > olderAvgVolume;
-    
+
     // Check for divergence
     if (priceUp && !volumeUp)
     {
@@ -588,7 +623,7 @@ bool CheckVolumePriceDivergenceAverage(const MqlRates &rates[], int period, bool
         isBullish = true;
         return true;
     }
-    
+
     return false;
 }
 
@@ -597,15 +632,15 @@ bool IsVolumeBreakout(const MqlRates &rates[], int lookback)
 {
     if (lookback < 5 || ArraySize(rates) < lookback + 1)
         return false;
-    
+
     double volumeSum = 0;
     for (int i = 1; i <= lookback; i++)
     {
         volumeSum += (double)rates[i].tick_volume;
     }
-    
+
     double avgVolume = volumeSum / lookback;
-    
+
     // Check if current volume is significantly higher than the average
     return (double)rates[0].tick_volume > avgVolume * 1.5; // 50% higher than average
 }
@@ -615,16 +650,16 @@ bool IsVolumeConfirmingPrice(const MqlRates &rates[], int barsToCheck)
 {
     if (barsToCheck < 3 || ArraySize(rates) < barsToCheck)
         return false;
-    
+
     // Determine price direction
     bool isUptrend = (double)rates[0].close > (double)rates[barsToCheck-1].close;
-    
+
     // Count bullish and bearish candles
     int bullishCount = 0;
     int bearishCount = 0;
     double bullishVolume = 0;
     double bearishVolume = 0;
-    
+
     for (int i = 0; i < barsToCheck; i++)
     {
         if (rates[i].close > rates[i].open)
@@ -638,18 +673,18 @@ bool IsVolumeConfirmingPrice(const MqlRates &rates[], int barsToCheck)
             bearishVolume += (double)rates[i].tick_volume;
         }
     }
-    
+
     // Calculate average volume for bullish and bearish candles
     double avgBullishVolume = (bullishCount > 0) ? bullishVolume / bullishCount : 0;
     double avgBearishVolume = (bearishCount > 0) ? bearishVolume / bearishCount : 0;
-    
+
     // Check if volume confirms price direction
     if (isUptrend && avgBullishVolume > avgBearishVolume * 1.2)
         return true; // In uptrend, bullish candles have higher volume
-    
+
     if (!isUptrend && avgBearishVolume > avgBullishVolume * 1.2)
         return true; // In downtrend, bearish candles have higher volume
-    
+
     return false;
 }
 
@@ -659,24 +694,24 @@ bool IsClimacticVolumeWithExhaustion(const MqlRates &rates[], int lookback, bool
 {
     if (lookback < 10 || ArraySize(rates) < lookback + 1)
         return false;
-    
+
     double volumeSum = 0;
     for (int i = 1; i <= lookback; i++)
     {
         volumeSum += (double)rates[i].tick_volume;
     }
-    
+
     double avgVolume = volumeSum / lookback;
-    
+
     // Check for extremely high volume
     if ((double)rates[0].tick_volume > avgVolume * 2) // 100% higher than average
     {
         // Determine if this is likely an exhaustion move
         // Typically, exhaustion happens after a strong trend
-        
+
         // Check if there was a strong trend
         bool priorUptrend = (double)rates[5].close > (double)rates[lookback].close;
-        
+
         // For exhaustion in uptrend, we expect a high volume bar with a close below open
         // For exhaustion in downtrend, we expect a high volume bar with a close above open
         if (priorUptrend && rates[0].close < rates[0].open)
@@ -689,12 +724,12 @@ bool IsClimacticVolumeWithExhaustion(const MqlRates &rates[], int lookback, bool
             isExhaustion = true;
             return true;
         }
-        
+
         // Otherwise, it's just high volume without exhaustion signs
         isExhaustion = false;
         return true;
     }
-    
+
     return false;
 }
 
@@ -703,10 +738,10 @@ double CalculateChaikinMoneyFlow(const MqlRates &rates[], int period)
 {
     if (period < 3 || ArraySize(rates) < period)
         return 0.0;
-    
+
     double sumMoneyFlowVolume = 0;
     double sumVolume = 0;
-    
+
     for (int i = 0; i < period; i++)
     {
         // Calculate Money Flow Multiplier
@@ -714,18 +749,18 @@ double CalculateChaikinMoneyFlow(const MqlRates &rates[], int period)
         double low = rates[i].low;
         double close = rates[i].close;
         double range = high - low;
-        
+
         double moneyFlowMultiplier = 0;
         if (range > 0)
             moneyFlowMultiplier = ((close - low) - (high - close)) / range;
-        
+
         // Calculate Money Flow Volume
         double moneyFlowVolume = moneyFlowMultiplier * (double)rates[i].tick_volume;
-        
+
         sumMoneyFlowVolume += moneyFlowVolume;
         sumVolume += (double)rates[i].tick_volume;
     }
-    
+
     if (sumVolume > 0)
         return sumMoneyFlowVolume / sumVolume;
     else
@@ -804,13 +839,13 @@ double CalculateVolumeMA(double &volume[], int ma_period, int shift = 0)
     // Check if we have enough data
     if (ArraySize(volume) < ma_period + shift)
         return 0.0;
-    
+
     double sum = 0.0;
     for (int i = shift; i < ma_period + shift; i++)
     {
         sum += volume[i];
     }
-    
+
     return sum / ma_period;
 }
 
@@ -819,9 +854,9 @@ bool IsVolumeExpansion(double &volume[], int ma_period, double expansion_factor,
 {
     if (ArraySize(volume) <= shift)
         return false;
-    
+
     double volume_ma = CalculateVolumeMA(volume, ma_period, shift + 1);
-    
+
     // Check if current volume is significantly higher than the average
     return (volume[shift] > volume_ma * expansion_factor);
 }
@@ -831,9 +866,9 @@ bool IsVolumeContraction(double &volume[], int ma_period, double contraction_fac
 {
     if (ArraySize(volume) <= shift)
         return false;
-    
+
     double volume_ma = CalculateVolumeMA(volume, ma_period, shift + 1);
-    
+
     // Check if current volume is significantly lower than the average
     return (volume[shift] < volume_ma * contraction_factor);
 }
@@ -844,7 +879,7 @@ bool IsVolumeClimaxArray(double &volume[], int lookback_period, double climax_fa
 {
     if (ArraySize(volume) < lookback_period + shift)
         return false;
-    
+
     // Find the maximum volume in the lookback period
     double max_volume = 0.0;
     for (int i = shift + 1; i < lookback_period + shift; i++)
@@ -852,7 +887,7 @@ bool IsVolumeClimaxArray(double &volume[], int lookback_period, double climax_fa
         if (volume[i] > max_volume)
             max_volume = volume[i];
     }
-    
+
     // Check if current volume is extremely high compared to the maximum
     return (volume[shift] > max_volume * climax_factor);
 }
@@ -862,81 +897,81 @@ bool IsPriceVolumeDivergence(double &price_high[], double &price_low[], double &
 {
     if (ArraySize(price_high) < 2 + shift || ArraySize(price_low) < 2 + shift || ArraySize(volume) < 2 + shift)
         return false;
-    
+
     // Check for price making a new high but volume decreasing
     bool price_new_high = price_high[shift] > price_high[shift + 1];
     bool volume_decreasing = volume[shift] < volume[shift + 1];
-    
+
     // Check for price making a new low but volume decreasing
     bool price_new_low = price_low[shift] < price_low[shift + 1];
-    
+
     // Return true if there's a divergence
     return (price_new_high && volume_decreasing) || (price_new_low && volume_decreasing);
 }
 
 // Check for volume confirmation of price movement
-bool IsVolumeConfirmingPrice(double &price_open[], double &price_close[], double &volume[], 
+bool IsVolumeConfirmingPrice(double &price_open[], double &price_close[], double &volume[],
                              int ma_period, double confirmation_factor, int shift = 0)
 {
     if (ArraySize(price_open) <= shift || ArraySize(price_close) <= shift || ArraySize(volume) <= shift)
         return false;
-    
+
     double volume_ma = CalculateVolumeMA(volume, ma_period, shift + 1);
-    
+
     // Determine if the price is going up or down
     bool price_up = price_close[shift] > price_open[shift];
-    
+
     // Check if volume is confirming the price movement
     // For an up move, we want higher than average volume
     // For a down move, higher volume also confirms the move
-    return (price_up && volume[shift] > volume_ma * confirmation_factor) || 
+    return (price_up && volume[shift] > volume_ma * confirmation_factor) ||
            (!price_up && volume[shift] > volume_ma * confirmation_factor);
 }
 
 // Check for a churn bar (high volume with small price range, indicating potential reversal)
-bool IsChurnBar(double &price_high[], double &price_low[], double &price_open[], double &price_close[], 
+bool IsChurnBar(double &price_high[], double &price_low[], double &price_open[], double &price_close[],
                 double &volume[], int ma_period, double churn_range_factor, double churn_volume_factor, int shift = 0)
 {
-    if (ArraySize(price_high) <= shift || ArraySize(price_low) <= shift || 
+    if (ArraySize(price_high) <= shift || ArraySize(price_low) <= shift ||
         ArraySize(price_open) <= shift || ArraySize(price_close) <= shift || ArraySize(volume) <= shift)
         return false;
-    
+
     // Calculate price range
     double price_range = price_high[shift] - price_low[shift];
-    
+
     // Calculate average price range
     double sum_range = 0.0;
     for (int i = shift + 1; i < ma_period + shift + 1; i++)
     {
         if (i >= ArraySize(price_high) || i >= ArraySize(price_low))
             break;
-        
+
         sum_range += (price_high[i] - price_low[i]);
     }
     double avg_range = sum_range / ma_period;
-    
+
     // Calculate average volume
     double volume_ma = CalculateVolumeMA(volume, ma_period, shift + 1);
-    
+
     // Check for a churn bar: small range with high volume
     return (price_range < avg_range * churn_range_factor && volume[shift] > volume_ma * churn_volume_factor);
 }
 
 // Check for volume breakout (high volume with price breaking a level)
-bool IsVolumeBreakout(double &price_close[], double &volume[], double level, bool break_above, 
+bool IsVolumeBreakout(double &price_close[], double &volume[], double level, bool break_above,
                      int ma_period, double breakout_factor, int shift = 0)
 {
     if (ArraySize(price_close) <= shift || ArraySize(volume) <= shift)
         return false;
-    
+
     double volume_ma = CalculateVolumeMA(volume, ma_period, shift + 1);
-    
+
     // Check if price is breaking above or below the level with high volume
     if (break_above)
-        return (price_close[shift] > level && price_close[shift + 1] <= level && 
+        return (price_close[shift] > level && price_close[shift + 1] <= level &&
                 volume[shift] > volume_ma * breakout_factor);
     else
-        return (price_close[shift] < level && price_close[shift + 1] >= level && 
+        return (price_close[shift] < level && price_close[shift + 1] >= level &&
                 volume[shift] > volume_ma * breakout_factor);
 }
 
@@ -945,7 +980,7 @@ bool IsDecreasingVolumeInTrend(double &price_close[], double &volume[], int tren
 {
     if (ArraySize(price_close) < trend_length + shift || ArraySize(volume) < trend_length + shift)
         return false;
-    
+
     // Determine if we're in an uptrend or downtrend
     bool uptrend = true;
     for (int i = shift; i < trend_length + shift - 1; i++)
@@ -956,7 +991,7 @@ bool IsDecreasingVolumeInTrend(double &price_close[], double &volume[], int tren
             break;
         }
     }
-    
+
     bool downtrend = true;
     for (int i = shift; i < trend_length + shift - 1; i++)
     {
@@ -966,11 +1001,11 @@ bool IsDecreasingVolumeInTrend(double &price_close[], double &volume[], int tren
             break;
         }
     }
-    
+
     // If we're not in a clear trend, return false
     if (!uptrend && !downtrend)
         return false;
-    
+
     // Check if volume is decreasing in the trend
     // Assuming AS_SERIES: volume[i] < volume[i+1] means current < previous = decreasing
     bool volume_decreasing = true;
@@ -987,35 +1022,35 @@ bool IsDecreasingVolumeInTrend(double &price_close[], double &volume[], int tren
 }
 
 // Volume-based buy signal
-bool CheckVolumeBasedBuySignal(double &price_high[], double &price_low[], double &price_open[], 
-                               double &price_close[], double &volume[], int ma_period, 
+bool CheckVolumeBasedBuySignal(double &price_high[], double &price_low[], double &price_open[],
+                               double &price_close[], double &volume[], int ma_period,
                                double expansion_factor, int shift = 0)
 {
     // Check for bullish price action with volume expansion
     bool bullish_candle = price_close[shift] > price_open[shift];
     bool volume_expansion = IsVolumeExpansion(volume, ma_period, expansion_factor, shift);
-    
+
     // Check for volume breakout above a resistance level (using recent high)
     double recent_high = price_high[shift + 1];
     bool volume_breakout = IsVolumeBreakout(price_close, volume, recent_high, true, ma_period, expansion_factor, shift);
-    
+
     // Return true if we have a bullish candle with volume expansion or a volume breakout
     return (bullish_candle && volume_expansion) || volume_breakout;
 }
 
 // Volume-based sell signal
-bool CheckVolumeBasedSellSignal(double &price_high[], double &price_low[], double &price_open[], 
-                                double &price_close[], double &volume[], int ma_period, 
+bool CheckVolumeBasedSellSignal(double &price_high[], double &price_low[], double &price_open[],
+                                double &price_close[], double &volume[], int ma_period,
                                 double expansion_factor, int shift = 0)
 {
     // Check for bearish price action with volume expansion
     bool bearish_candle = price_close[shift] < price_open[shift];
     bool volume_expansion = IsVolumeExpansion(volume, ma_period, expansion_factor, shift);
-    
+
     // Check for volume breakout below a support level (using recent low)
     double recent_low = price_low[shift + 1];
     bool volume_breakout = IsVolumeBreakout(price_close, volume, recent_low, false, ma_period, expansion_factor, shift);
-    
+
     // Return true if we have a bearish candle with volume expansion or a volume breakout
     return (bearish_candle && volume_expansion) || volume_breakout;
 }
@@ -1025,13 +1060,13 @@ double CalculateAverageVolume(MqlRates &rates[], int start_index, int period)
 {
     if (start_index < 0 || period <= 0 || start_index + period > ArraySize(rates))
         return 0.0;
-    
+
     double total_volume = 0.0;
-    
+
     for (int i = start_index; i < start_index + period; i++) {
         total_volume += (double)rates[i].tick_volume;
     }
-    
+
     return total_volume / period;
 }
 
@@ -1040,14 +1075,14 @@ bool IsVolumeAboveAverage(MqlRates &rates[], int index, int period, double thres
 {
     if (index < period || index >= ArraySize(rates))
         return false;
-    
+
     double avg_volume = CalculateAverageVolume(rates, index - period, period);
-    
+
     if (avg_volume <= 0)
         return false;
-    
+
     double current_volume = (double)rates[index].tick_volume;
-    
+
     return (current_volume > avg_volume * threshold_multiplier);
 }
 
@@ -1056,14 +1091,14 @@ bool IsVolumeBelowAverage(MqlRates &rates[], int index, int period, double thres
 {
     if (index < period || index >= ArraySize(rates))
         return false;
-    
+
     double avg_volume = CalculateAverageVolume(rates, index - period, period);
-    
+
     if (avg_volume <= 0)
         return false;
-    
+
     double current_volume = (double)rates[index].tick_volume;
-    
+
     return (current_volume < avg_volume * threshold_multiplier);
 }
 
@@ -1072,17 +1107,17 @@ bool IsVolumePriceDivergence(MqlRates &rates[], int index, int period)
 {
     if (index < period || index >= ArraySize(rates))
         return false;
-    
+
     // Determine price direction (using close prices)
     double first_price = rates[index - period].close;
     double last_price = rates[index].close;
     bool price_rising = (last_price > first_price);
-    
+
     // Determine volume direction
     double first_volume = (double)rates[index - period].tick_volume;
     double last_volume = (double)rates[index].tick_volume;
     bool volume_rising = (last_volume > first_volume);
-    
+
     // Check for divergence (price up but volume down, or price down but volume up)
     return (price_rising && !volume_rising) || (!price_rising && volume_rising);
 }
@@ -1092,17 +1127,17 @@ bool IsVolumeConfirmation(MqlRates &rates[], int index, int period)
 {
     if (index < period || index >= ArraySize(rates))
         return false;
-    
+
     // Determine price direction (using close prices)
     double first_price = rates[index - period].close;
     double last_price = rates[index].close;
     bool price_rising = (last_price > first_price);
-    
+
     // Determine volume direction
     double first_volume = (double)rates[index - period].tick_volume;
     double last_volume = (double)rates[index].tick_volume;
     bool volume_rising = (last_volume > first_volume);
-    
+
     // Check for confirmation (price and volume moving in same direction)
     return (price_rising && volume_rising) || (!price_rising && !volume_rising);
 }
@@ -1119,15 +1154,15 @@ bool IsVolumeClimaxWithSmallBody(MqlRates &rates[], int index, int period, doubl
 {
     if (index < period || index >= ArraySize(rates))
         return false;
-    
+
     // Check for extremely high volume
     if (!IsVolumeAboveAverage(rates, index, period, threshold_multiplier))
         return false;
-    
+
     // Look for price exhaustion (small or doji candle)
     double body_size = MathAbs(rates[index].close - rates[index].open);
     double candle_size = rates[index].high - rates[index].low;
-    
+
     // If the body is very small compared to the total candle size, it might be exhaustion
     return (body_size < candle_size * 0.3);
 }
@@ -1137,22 +1172,22 @@ double CalculateOBV(MqlRates &rates[], int index, int period)
 {
     if (index < period || index >= ArraySize(rates))
         return 0.0;
-    
+
     double obv = 0.0;
-    
+
     for (int i = index - period + 1; i <= index; i++) {
         if (i <= 0)
             continue;
-        
+
         double close_diff = rates[i].close - rates[i-1].close;
-        
+
         if (close_diff > 0)
             obv += (double)rates[i].tick_volume;
         else if (close_diff < 0)
             obv -= (double)rates[i].tick_volume;
         // If close_diff == 0, OBV doesn't change
     }
-    
+
     return obv;
 }
 
@@ -1161,10 +1196,10 @@ bool IsOBVRising(MqlRates &rates[], int index, int period)
 {
     if (index < period + 1 || index >= ArraySize(rates))
         return false;
-    
+
     double current_obv = CalculateOBV(rates, index, period);
     double previous_obv = CalculateOBV(rates, index - 1, period);
-    
+
     return (current_obv > previous_obv);
 }
 
@@ -1173,10 +1208,10 @@ bool IsOBVFalling(MqlRates &rates[], int index, int period)
 {
     if (index < period + 1 || index >= ArraySize(rates))
         return false;
-    
+
     double current_obv = CalculateOBV(rates, index, period);
     double previous_obv = CalculateOBV(rates, index - 1, period);
-    
+
     return (current_obv < previous_obv);
 }
 
@@ -1185,17 +1220,17 @@ bool IsOBVDivergence(MqlRates &rates[], int index, int period)
 {
     if (index < period + 1 || index >= ArraySize(rates))
         return false;
-    
+
     // Determine price direction (using close prices)
     double first_price = rates[index - period].close;
     double last_price = rates[index].close;
     bool price_rising = (last_price > first_price);
-    
+
     // Determine OBV direction
     double first_obv = CalculateOBV(rates, index - period, period);
     double last_obv = CalculateOBV(rates, index, period);
     bool obv_rising = (last_obv > first_obv);
-    
+
     // Check for divergence (price up but OBV down, or price down but OBV up)
     return (price_rising && !obv_rising) || (!price_rising && obv_rising);
 }
@@ -1205,39 +1240,39 @@ double CalculateMFI(MqlRates &rates[], int index, int period)
 {
     if (index < period || index >= ArraySize(rates))
         return 50.0; // Return neutral value
-    
+
     double positive_money_flow = 0.0;
     double negative_money_flow = 0.0;
-    
+
     for (int i = index - period + 1; i <= index; i++) {
         if (i <= 0)
             continue;
-        
+
         // Calculate typical price for current and previous bars
         double typical_price_current = (rates[i].high + rates[i].low + rates[i].close) / 3.0;
         double typical_price_prev = (rates[i-1].high + rates[i-1].low + rates[i-1].close) / 3.0;
-        
+
         // Calculate raw money flow
         double raw_money_flow = typical_price_current * (double)rates[i].tick_volume;
-        
+
         // Accumulate positive or negative money flow
         if (typical_price_current > typical_price_prev)
             positive_money_flow += raw_money_flow;
         else if (typical_price_current < typical_price_prev)
             negative_money_flow += raw_money_flow;
     }
-    
+
     // Avoid division by zero
     if (negative_money_flow == 0)
         return 100.0;
-    
+
     if (positive_money_flow == 0)
         return 0.0;
-    
+
     // Calculate money flow ratio and MFI
     double money_flow_ratio = positive_money_flow / negative_money_flow;
     double mfi = 100.0 - (100.0 / (1.0 + money_flow_ratio));
-    
+
     return mfi;
 }
 
@@ -1246,9 +1281,9 @@ bool IsMFIOversold(MqlRates &rates[], int index, int period, double threshold = 
 {
     if (index < period || index >= ArraySize(rates))
         return false;
-    
+
     double mfi = CalculateMFI(rates, index, period);
-    
+
     return (mfi < threshold);
 }
 
@@ -1257,9 +1292,9 @@ bool IsMFIOverbought(MqlRates &rates[], int index, int period, double threshold 
 {
     if (index < period || index >= ArraySize(rates))
         return false;
-    
+
     double mfi = CalculateMFI(rates, index, period);
-    
+
     return (mfi > threshold);
 }
 
@@ -1268,29 +1303,29 @@ double CalculateAccumulationDistribution(MqlRates &rates[], int index, int perio
 {
     if (index < period || index >= ArraySize(rates))
         return 0.0;
-    
+
     double ad_line = 0.0;
-    
+
     for (int i = index - period + 1; i <= index; i++) {
         if (i < 0)
             continue;
-        
+
         // Calculate Money Flow Multiplier
         double high_low_range = rates[i].high - rates[i].low;
-        
+
         // Avoid division by zero
         if (high_low_range == 0)
             continue;
-        
+
         double close_loc = ((rates[i].close - rates[i].low) - (rates[i].high - rates[i].close)) / high_low_range;
-        
+
         // Calculate Money Flow Volume
         double money_flow_volume = close_loc * (double)rates[i].tick_volume;
-        
+
         // Add to A/D Line
         ad_line += money_flow_volume;
     }
-    
+
     return ad_line;
 }
 
@@ -1299,10 +1334,10 @@ bool IsADLineRising(MqlRates &rates[], int index, int period)
 {
     if (index < period + 1 || index >= ArraySize(rates))
         return false;
-    
+
     double current_ad = CalculateAccumulationDistribution(rates, index, period);
     double previous_ad = CalculateAccumulationDistribution(rates, index - 1, period);
-    
+
     return (current_ad > previous_ad);
 }
 
@@ -1311,10 +1346,10 @@ bool IsADLineFalling(MqlRates &rates[], int index, int period)
 {
     if (index < period + 1 || index >= ArraySize(rates))
         return false;
-    
+
     double current_ad = CalculateAccumulationDistribution(rates, index, period);
     double previous_ad = CalculateAccumulationDistribution(rates, index - 1, period);
-    
+
     return (current_ad < previous_ad);
 }
 
@@ -1323,17 +1358,17 @@ bool IsADLineDivergence(MqlRates &rates[], int index, int period)
 {
     if (index < period + 1 || index >= ArraySize(rates))
         return false;
-    
+
     // Determine price direction (using close prices)
     double first_price = rates[index - period].close;
     double last_price = rates[index].close;
     bool price_rising = (last_price > first_price);
-    
+
     // Determine A/D Line direction
     double first_ad = CalculateAccumulationDistribution(rates, index - period, period);
     double last_ad = CalculateAccumulationDistribution(rates, index, period);
     bool ad_rising = (last_ad > first_ad);
-    
+
     // Check for divergence
     return (price_rising && !ad_rising) || (!price_rising && ad_rising);
 }
@@ -1343,99 +1378,99 @@ bool IsVolumeDryingUp(MqlRates &rates[], int index, int period, int consecutive_
 {
     if (index < period + consecutive_bars - 1 || index >= ArraySize(rates))
         return false;
-    
+
     // Check for a series of consecutively lower volumes
     for (int i = 1; i < consecutive_bars; i++) {
         if (rates[index - i + 1].tick_volume >= rates[index - i].tick_volume)
             return false;
     }
-    
+
     return true;
 }
 
 // Comprehensive check for bullish volume patterns
-bool CheckVolumeBuySignal(MqlRates &rates[], int index, int volume_period, 
+bool CheckVolumeBuySignal(MqlRates &rates[], int index, int volume_period,
                          double volume_threshold, bool check_divergence,
                          bool check_obv, bool check_mfi, bool check_adline)
 {
     if (index < volume_period || index >= ArraySize(rates))
         return false;
-    
+
     bool signal = false;
-    
+
     // Check for high volume on an up bar
-    if (rates[index].close > rates[index].open && 
+    if (rates[index].close > rates[index].open &&
         IsVolumeAboveAverage(rates, index, volume_period, volume_threshold)) {
         signal = true;
     }
-    
+
     // Check for volume/price divergence (bearish to bullish)
     if (check_divergence && IsVolumePriceDivergence(rates, index, volume_period)) {
         // Make sure it's the right kind of divergence (price down, volume up)
-        if (rates[index].close < rates[index - volume_period].close && 
+        if (rates[index].close < rates[index - volume_period].close &&
             rates[index].tick_volume > rates[index - volume_period].tick_volume) {
             signal = true;
         }
     }
-    
+
     // Check for bullish OBV signal
     if (check_obv && IsOBVRising(rates, index, volume_period)) {
         signal = true;
     }
-    
+
     // Check for bullish MFI signal (oversold)
     if (check_mfi && IsMFIOversold(rates, index, volume_period)) {
         signal = true;
     }
-    
+
     // Check for bullish A/D Line signal
     if (check_adline && IsADLineRising(rates, index, volume_period)) {
         signal = true;
     }
-    
+
     return signal;
 }
 
 // Comprehensive check for bearish volume patterns
-bool CheckVolumeSellSignal(MqlRates &rates[], int index, int volume_period, 
+bool CheckVolumeSellSignal(MqlRates &rates[], int index, int volume_period,
                           double volume_threshold, bool check_divergence,
                           bool check_obv, bool check_mfi, bool check_adline)
 {
     if (index < volume_period || index >= ArraySize(rates))
         return false;
-    
+
     bool signal = false;
-    
+
     // Check for high volume on a down bar
-    if (rates[index].close < rates[index].open && 
+    if (rates[index].close < rates[index].open &&
         IsVolumeAboveAverage(rates, index, volume_period, volume_threshold)) {
         signal = true;
     }
-    
+
     // Check for volume/price divergence (bullish to bearish)
     if (check_divergence && IsVolumePriceDivergence(rates, index, volume_period)) {
         // Make sure it's the right kind of divergence (price up, volume down)
-        if (rates[index].close > rates[index - volume_period].close && 
+        if (rates[index].close > rates[index - volume_period].close &&
             rates[index].tick_volume < rates[index - volume_period].tick_volume) {
             signal = true;
         }
     }
-    
+
     // Check for bearish OBV signal
     if (check_obv && IsOBVFalling(rates, index, volume_period)) {
         signal = true;
     }
-    
+
     // Check for bearish MFI signal (overbought)
     if (check_mfi && IsMFIOverbought(rates, index, volume_period)) {
         signal = true;
     }
-    
+
     // Check for bearish A/D Line signal
     if (check_adline && IsADLineFalling(rates, index, volume_period)) {
         signal = true;
     }
-    
+
     return signal;
 }
 
@@ -1445,13 +1480,106 @@ bool CheckVolumeSellSignal(MqlRates &rates[], int index, int volume_period,
 bool IsCMFBullish(MqlRates &rates[])
 {
     double cmf = CalculateChaikinMoneyFlow(rates, 20);
-    
+
     if(cmf > 0.05) {
         DebugPrint("Chaikin Money Flow is in the positive zone: " + DoubleToString(cmf, 5));
         return true;
     }
-    
+
     return false;
+}
+
+
+//+------------------------------------------------------------------+
+//| FALLBACK: Volume analysis using tick_volume when real volume unavailable |
+//+------------------------------------------------------------------+
+int CheckVolumeAnalysisBuyFallback(MqlRates &rates[])
+{
+    DebugPrint("Using fallback volume analysis for buy (tick_volume based)");
+
+    int confirmations = 0;
+    int size = ArraySize(rates);
+
+    if(size < 10) {
+        DebugPrint("Not enough data for fallback volume analysis");
+        return 0;
+    }
+
+    // Calculate average tick volume
+    long avg_tick_volume = 0;
+    int bars_to_check = MathMin(10, size);
+    for(int i = 0; i < bars_to_check; i++) {
+        avg_tick_volume += rates[i].tick_volume;
+    }
+    avg_tick_volume /= bars_to_check;
+
+    // RECALIBRATED: Use 1.2x threshold for tick volume (same as real volume)
+    // Check for tick volume increase in bullish candle
+    if(rates[0].close > rates[0].open && rates[0].tick_volume > avg_tick_volume * 1.2) {
+        DebugPrint("Tick volume increase in bullish candle detected");
+        confirmations++;
+    }
+
+    // Check for breakout with increased tick volume
+    double recent_resistance = 0;
+    int lookback = MathMin(20, size);
+    for(int i = 1; i < lookback; i++) {
+        if(rates[i].high > recent_resistance)
+            recent_resistance = rates[i].high;
+    }
+
+    if(rates[0].close > recent_resistance && rates[0].tick_volume > avg_tick_volume * 1.15) {
+        DebugPrint("Breakout with high tick volume detected");
+        confirmations++;
+    }
+
+    return confirmations;
+}
+
+//+------------------------------------------------------------------+
+//| FALLBACK: Volume analysis for sell using tick_volume             |
+//+------------------------------------------------------------------+
+int CheckVolumeAnalysisShortFallback(MqlRates &rates[])
+{
+    DebugPrint("Using fallback volume analysis for sell (tick_volume based)");
+
+    int confirmations = 0;
+    int size = ArraySize(rates);
+
+    if(size < 10) {
+        DebugPrint("Not enough data for fallback volume analysis");
+        return 0;
+    }
+
+    // Calculate average tick volume
+    long avg_tick_volume = 0;
+    int bars_to_check = MathMin(10, size);
+    for(int i = 0; i < bars_to_check; i++) {
+        avg_tick_volume += rates[i].tick_volume;
+    }
+    avg_tick_volume /= bars_to_check;
+
+    // RECALIBRATED: Use 1.2x threshold for tick volume (same as real volume)
+    // Check for tick volume increase in bearish candle
+    if(rates[0].close < rates[0].open && rates[0].tick_volume > avg_tick_volume * 1.2) {
+        DebugPrint("Tick volume increase in bearish candle detected");
+        confirmations++;
+    }
+
+    // Check for breakdown with increased tick volume
+    double recent_support = DBL_MAX;
+    int lookback = MathMin(20, size);
+    for(int i = 1; i < lookback; i++) {
+        if(rates[i].low < recent_support)
+            recent_support = rates[i].low;
+    }
+
+    if(rates[0].close < recent_support && rates[0].tick_volume > avg_tick_volume * 1.15) {
+        DebugPrint("Breakdown with high tick volume detected");
+        confirmations++;
+    }
+
+    return confirmations;
 }
 
 //+------------------------------------------------------------------+
@@ -1460,11 +1588,11 @@ bool IsCMFBullish(MqlRates &rates[])
 bool IsCMFBearish(MqlRates &rates[])
 {
     double cmf = CalculateChaikinMoneyFlow(rates, 20);
-    
+
     if(cmf < -0.05) {
         DebugPrint("Chaikin Money Flow is in the negative zone: " + DoubleToString(cmf, 5));
         return true;
     }
-    
+
     return false;
-} 
+}

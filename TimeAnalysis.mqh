@@ -341,14 +341,16 @@ int CheckTimeAnalysis(MqlRates &rates[])
     
     int confirmations = 0;
     
+    // FIXED: Reduced minimum bars from 100 to 50 for earlier signal generation
     // Check array size
     int size = ArraySize(rates);
-    if(size < 100) {
+    if(size < 50) {
         DebugPrint("The rates array for CheckTimeAnalysis is smaller than the required size: " + IntegerToString(size));
         return 0;
     }
-    
-    // Finding significant points in the last 100 candles
+
+    // FIXED: Finding significant points in the available candles (reduced from 100 to 50)
+    int lookback = MathMin(size, 50);
     int swing_high_indices[10];  // Indices of the last 10 peaks
     int swing_low_indices[10];   // Indices of the last 10 troughs
     datetime swing_high_times[10]; // Times of the last 10 peaks
@@ -363,19 +365,20 @@ int CheckTimeAnalysis(MqlRates &rates[])
     int swing_high_count = 0;
     int swing_low_count = 0;
     
+    // FIXED: Relaxed swing detection - use <= and >= instead of strict < and >
     // Identifying significant peaks and troughs
-    for(int i = 1; i < size - 1; i++) {
-        if(rates[i].high > rates[i-1].high && rates[i].high > rates[i+1].high) {
-            // Local peak
+    for(int i = 1; i < lookback - 1; i++) {
+        if(rates[i].high >= rates[i-1].high && rates[i].high >= rates[i+1].high) {
+            // Local peak (relaxed)
             if(swing_high_count < 10) {
                 swing_high_indices[swing_high_count] = i;
                 swing_high_times[swing_high_count] = rates[i].time;
                 swing_high_count++;
             }
         }
-        
-        if(rates[i].low < rates[i-1].low && rates[i].low < rates[i+1].low) {
-            // Local trough
+
+        if(rates[i].low <= rates[i-1].low && rates[i].low <= rates[i+1].low) {
+            // Local trough (relaxed)
             if(swing_low_count < 10) {
                 swing_low_indices[swing_low_count] = i;
                 swing_low_times[swing_low_count] = rates[i].time;
@@ -388,8 +391,9 @@ int CheckTimeAnalysis(MqlRates &rates[])
             break;
     }
     
+    // FIXED: Reduced minimum points from 3 to 2 for more flexible analysis
     // If not enough points found
-    if(swing_high_count < 3 || swing_low_count < 3) {
+    if(swing_high_count < 2 || swing_low_count < 2) {
         DebugPrint("Not enough points found for time analysis");
         return 0;
     }
@@ -406,22 +410,23 @@ int CheckTimeAnalysis(MqlRates &rates[])
         low_time_deltas[i] = swing_low_times[i] - swing_low_times[i+1];
     }
     
+    // FIXED: Relaxed time tolerance from 1 hour to 4 hours for more flexible pattern detection
     // Analyze periodic patterns (time cycles)
     // Check if the time interval between two recent peaks/troughs matches previous patterns
     for(int i = 0; i < swing_high_count - 2; i++) {
         // Compare the time interval of the two recent peaks with previous peak intervals
-        if(MathAbs(high_time_deltas[0] - high_time_deltas[i+1]) < 3600) {  // Difference less than 1 hour
-            DebugPrint("Repeated time pattern found in peaks: " + 
-                       TimeToString(swing_high_times[0], TIME_DATE|TIME_MINUTES) + " ~ " + 
+        if(MathAbs(high_time_deltas[0] - high_time_deltas[i+1]) < 14400) {  // FIXED: Increased from 3600 (1h) to 14400 (4h)
+            DebugPrint("Repeated time pattern found in peaks: " +
+                       TimeToString(swing_high_times[0], TIME_DATE|TIME_MINUTES) + " ~ " +
                        TimeToString(swing_high_times[i+2], TIME_DATE|TIME_MINUTES));
             confirmations++;
             break;
         }
     }
-    
+
     for(int i = 0; i < swing_low_count - 2; i++) {
         // Compare the time interval of the two recent troughs with previous trough intervals
-        if(MathAbs(low_time_deltas[0] - low_time_deltas[i+1]) < 3600) {  // Difference less than 1 hour
+        if(MathAbs(low_time_deltas[0] - low_time_deltas[i+1]) < 14400) {  // FIXED: Increased from 3600 (1h) to 14400 (4h)
             DebugPrint("Repeated time pattern found in troughs: " + 
                        TimeToString(swing_low_times[0], TIME_DATE|TIME_MINUTES) + " ~ " + 
                        TimeToString(swing_low_times[i+2], TIME_DATE|TIME_MINUTES));

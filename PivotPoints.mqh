@@ -7,10 +7,11 @@
 // Timeframe for this module
 extern ENUM_TIMEFRAMES PP_Timeframe;
 
+// FIXED: Relaxed thresholds for more flexible pivot detection
 // Constants for pivot point calculations
-#define PIVOT_NEAR_THRESHOLD_PERCENT 0.05  // 5% of range as "near" threshold
-#define PIVOT_TOLERANCE_PIPS 50.0          // 50 pips tolerance for reversal detection
-#define PIVOT_PROXIMITY_PIPS 10.0          // 10 pips for proximity checks
+#define PIVOT_NEAR_THRESHOLD_PERCENT 0.10  // FIXED: Increased from 5% to 10% of range as "near" threshold
+#define PIVOT_TOLERANCE_PIPS 100.0         // FIXED: Increased from 50 to 100 pips tolerance for reversal detection
+#define PIVOT_PROXIMITY_PIPS 20.0          // FIXED: Increased from 10 to 20 pips for proximity checks
 
 // Structure to hold pivot point levels
 struct PivotLevels
@@ -64,17 +65,21 @@ bool CheckPivotSupportBuy(const MqlRates &rates[], int size, ENUM_TIMEFRAMES piv
     // Check if price is near support levels
     double nearThreshold = (levels.r1 - levels.s1) * PIVOT_NEAR_THRESHOLD_PERCENT;
 
-    // Check if price bounced from support levels
-    if ((MathAbs(rates[1].low - levels.s1) < nearThreshold && currentPrice > rates[1].close) ||
-        (MathAbs(rates[1].low - levels.s2) < nearThreshold && currentPrice > rates[1].close) ||
-        (MathAbs(rates[1].low - levels.s3) < nearThreshold && currentPrice > rates[1].close) ||
-        (MathAbs(rates[1].low - levels.pivot) < nearThreshold && currentPrice > rates[1].close))
+    // FIXED: Relaxed bounce detection - removed requirement for currentPrice > rates[1].close
+    // Just check if price is near support levels (more flexible)
+    if ((MathAbs(rates[1].low - levels.s1) < nearThreshold) ||
+        (MathAbs(rates[1].low - levels.s2) < nearThreshold) ||
+        (MathAbs(rates[1].low - levels.s3) < nearThreshold) ||
+        (MathAbs(rates[1].low - levels.pivot) < nearThreshold) ||
+        (MathAbs(currentPrice - levels.s1) < nearThreshold) ||
+        (MathAbs(currentPrice - levels.s2) < nearThreshold) ||
+        (MathAbs(currentPrice - levels.pivot) < nearThreshold))
     {
         return true;
     }
 
-    // Check if price breaks above pivot after testing support
-    if (rates[1].close < levels.pivot && currentPrice > levels.pivot)
+    // FIXED: Relaxed breakout detection - check if price is near or above pivot
+    if (currentPrice >= levels.pivot - nearThreshold)
     {
         return true;
     }
@@ -105,17 +110,21 @@ bool CheckPivotResistanceShort(const MqlRates &rates[], int size, ENUM_TIMEFRAME
     // Check if price is near resistance levels
     double nearThreshold = (levels.r1 - levels.s1) * PIVOT_NEAR_THRESHOLD_PERCENT;
 
-    // Check if price bounced from resistance levels
-    if ((MathAbs(rates[1].high - levels.r1) < nearThreshold && currentPrice < rates[1].close) ||
-        (MathAbs(rates[1].high - levels.r2) < nearThreshold && currentPrice < rates[1].close) ||
-        (MathAbs(rates[1].high - levels.r3) < nearThreshold && currentPrice < rates[1].close) ||
-        (MathAbs(rates[1].high - levels.pivot) < nearThreshold && currentPrice < rates[1].close))
+    // FIXED: Relaxed bounce detection - removed requirement for currentPrice < rates[1].close
+    // Just check if price is near resistance levels (more flexible)
+    if ((MathAbs(rates[1].high - levels.r1) < nearThreshold) ||
+        (MathAbs(rates[1].high - levels.r2) < nearThreshold) ||
+        (MathAbs(rates[1].high - levels.r3) < nearThreshold) ||
+        (MathAbs(rates[1].high - levels.pivot) < nearThreshold) ||
+        (MathAbs(currentPrice - levels.r1) < nearThreshold) ||
+        (MathAbs(currentPrice - levels.r2) < nearThreshold) ||
+        (MathAbs(currentPrice - levels.pivot) < nearThreshold))
     {
         return true;
     }
 
-    // Check if price breaks below pivot after testing resistance
-    if (rates[1].close > levels.pivot && currentPrice < levels.pivot)
+    // FIXED: Relaxed breakout detection - check if price is near or below pivot
+    if (currentPrice <= levels.pivot + nearThreshold)
     {
         return true;
     }

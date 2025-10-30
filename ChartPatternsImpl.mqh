@@ -6,8 +6,8 @@
 #property copyright "Copyright 2023, Gold Trader"
 #property strict
 
-// Declare external variables needed
-#import "GoldTraderEA_cleaned.mq5"
+// Import functions from main EA file
+#import "GoldTraderEA.mq5"
    void DebugPrint(string message);
    bool CheckArrayAccess(int index, int array_size, string function_name);
    bool GetDebugMode();
@@ -45,33 +45,38 @@ void ResetPatternCache()
 }
 
 //+------------------------------------------------------------------+
-//| Detect Double Top                                                |
+//| Detect Double Top - REDESIGNED with quality scoring              |
 //+------------------------------------------------------------------+
-bool IsDoubleTop(MqlRates &rates[])
+bool IsDoubleTop(MqlRates &rates[], double &neckline_out, double &quality_score)
 {
     // Use cache
-    if(ShouldUseCache(rates, 0))
+    if(ShouldUseCache(rates, 0)) {
+        neckline_out = 0;  // Cache doesn't store neckline, recalculate if needed
+        quality_score = 0;
         return s_cached_pattern_results[0] == 1;
-    
+    }
+
     // Check array size - quick exit
     int size = ArraySize(rates);
     if(size < 20) {
         s_cached_pattern_results[0] = 0;
+        neckline_out = 0;
+        quality_score = 0;
         return false;
     }
-    
+
     // To detect Double Top, we need to find two peaks with similar heights
     int peak1_pos = -1, peak2_pos = -1;
     double peak1_val = 0, peak2_val = 0;
-    
+
     // Find the first peak - strict limits are applied for indices
     int max_i = MathMin(90, size-4); // Ensure that i+3 is in range
     for(int i = 10; i < max_i; i++)
     {
         // Safe array range check
         if(i < 3 || i+1 >= size) continue;
-        
-        if(rates[i].high > rates[i+1].high && rates[i].high > rates[i-1].high && 
+
+        if(rates[i].high > rates[i+1].high && rates[i].high > rates[i-1].high &&
            rates[i].high > rates[i-2].high && rates[i].high > rates[i-3].high)
         {
             peak1_pos = i;
@@ -79,13 +84,15 @@ bool IsDoubleTop(MqlRates &rates[])
             break;
         }
     }
-    
+
     // Quick exit if the first peak is not found
     if(peak1_pos == -1) {
         s_cached_pattern_results[0] = 0;
+        neckline_out = 0;
+        quality_score = 0;
         return false;
     }
-    
+
     // Find the second peak
     int min_i = MathMax(3, peak1_pos-10); // Minimum 3 to ensure access to i-3
     for(int i = min_i; i >= 3; i--)
@@ -93,12 +100,12 @@ bool IsDoubleTop(MqlRates &rates[])
         // Check array range
         if(i+3 >= size || i < 3)
             continue;
-            
+
         // Recheck array range - reducing operations
         if(!CheckArrayAccess(i, size, "IsDoubleTop"))
            continue;
-           
-        if(rates[i].high > rates[i+1].high && rates[i].high > rates[i-1].high && 
+
+        if(rates[i].high > rates[i+1].high && rates[i].high > rates[i-1].high &&
            rates[i].high > rates[i-2].high && rates[i].high > rates[i-3].high)
         {
             peak2_pos = i;
@@ -106,96 +113,153 @@ bool IsDoubleTop(MqlRates &rates[])
             break;
         }
     }
-    
+
     // Quick exit if the second peak is not found
     if(peak2_pos == -1) {
         s_cached_pattern_results[0] = 0;
+        neckline_out = 0;
+        quality_score = 0;
         return false;
     }
-    
-    // Check Double Top conditions
+
+    // Calculate neckline (valley between peaks)
+    double neckline = DBL_MAX;
+    for(int i = peak2_pos; i < peak1_pos; i++)
+    {
+        if(i < 0 || i >= size)
+            continue;
+
+        if(rates[i].low < neckline)
+            neckline = rates[i].low;
+    }
+
+    neckline_out = neckline;
+
+    // Calculate quality score (0-100)
+    quality_score = 0;
+
+    // Factor 1: Peak symmetry (max 40 points)
+    double peak_diff_percent = MathAbs(peak1_val - peak2_val) / peak1_val;
+    if(peak_diff_percent < 0.005)  // < 0.5% difference
+        quality_score += 40;
+    else if(peak_diff_percent < 0.01)  // < 1% difference
+        quality_score += 30;
+    else if(peak_diff_percent < 0.02)  // < 2% difference
+        quality_score += 20;
+    else
+        quality_score += 10;
+
+    // Factor 2: Peak separation (max 20 points)
+    int peak_separation = peak1_pos - peak2_pos;
+    if(peak_separation >= 20)
+        quality_score += 20;
+    else if(peak_separation >= 15)
+        quality_score += 15;
+    else if(peak_separation >= 10)
+        quality_score += 10;
+
+    // Factor 3: Pattern depth (max 20 points)
+    double pattern_depth = (peak1_val - neckline) / peak1_val;
+    if(pattern_depth > 0.03)  // > 3% depth
+        quality_score += 20;
+    else if(pattern_depth > 0.02)  // > 2% depth
+        quality_score += 15;
+    else if(pattern_depth > 0.01)  // > 1% depth
+        quality_score += 10;
+
+    // Factor 4: Clean pattern (max 20 points) - check for noise between peaks
+    int noise_count = 0;
+    for(int i = peak2_pos + 1; i < peak1_pos; i++) {
+        if(i >= size) break;
+        // Count candles that breach the neckline significantly
+        if(rates[i].low < neckline * 0.995)  // 0.5% below neckline
+            noise_count++;
+    }
+    if(noise_count == 0)
+        quality_score += 20;
+    else if(noise_count <= 2)
+        quality_score += 10;
+
+    // Check Double Top conditions - NO BREAKOUT REQUIRED for early entry
     bool result = false;
-    
+
     // Peaks must have similar heights
-    if(MathAbs(peak1_val - peak2_val) < 0.01 * peak1_val)
+    if(peak_diff_percent < 0.02)  // Within 2%
     {
         // Peaks must be sufficiently far apart
-        if(peak1_pos - peak2_pos > 10)
+        if(peak_separation > 10)
         {
-            // Check for bearish breakout
-            double neckline = 0;
-            for(int i = peak2_pos; i < peak1_pos; i++)
-            {
-                if(i < 0 || i >= size)
-                    continue;
-                    
-                neckline = MathMin(rates[i].low, (neckline == 0) ? rates[i].low : neckline);
-            }
-            
-            if(neckline > 0 && CheckArrayAccess(0, size, "IsDoubleTop"))
-                result = (rates[0].close < neckline);
+            // Pattern is valid - don't require breakout
+            result = true;
         }
     }
-    
+
     // Store result in cache
     s_cached_pattern_results[0] = result ? 1 : 0;
     return result;
 }
 
 //+------------------------------------------------------------------+
-//| Detect Double Bottom                                             |
+//| Detect Double Bottom - REDESIGNED with quality scoring           |
 //+------------------------------------------------------------------+
-bool IsDoubleBottom(MqlRates &rates[])
+bool IsDoubleBottom(MqlRates &rates[], double &neckline_out, double &quality_score)
 {
     // FIX: Add cache support matching IsDoubleTop pattern
-    if(ShouldUseCache(rates, 1))
+    if(ShouldUseCache(rates, 1)) {
+        neckline_out = 0;
+        quality_score = 0;
         return s_cached_pattern_results[1] == 1;
+    }
 
     // Check array size
     int size = ArraySize(rates);
     if(size < 20) {
         s_cached_pattern_results[1] = 0;
-        DebugPrint("Error in IsDoubleBottom: Array size too small: " + IntegerToString(size));
+        neckline_out = 0;
+        quality_score = 0;
+        if(GetDebugMode()) DebugPrint("Error in IsDoubleBottom: Array size too small: " + IntegerToString(size));
         return false;
     }
-    
+
     // Find two price bottoms with a middle peak
     double first_bottom = DBL_MAX;
     double second_bottom = DBL_MAX;
     double middle_peak = 0;
-    
+
     int first_bottom_idx = -1;
     int second_bottom_idx = -1;
     int middle_peak_idx = -1;
-    
+
     // Find the first bottom
     for(int i = MathMin(19, size-1); i >= 15; i--)
     {
-        if(!CheckArrayAccess(i, size, "IsDoubleBottom") || 
-           !CheckArrayAccess(i+1, size, "IsDoubleBottom") || 
+        if(!CheckArrayAccess(i, size, "IsDoubleBottom") ||
+           !CheckArrayAccess(i+1, size, "IsDoubleBottom") ||
            !CheckArrayAccess(i-1, size, "IsDoubleBottom"))
             continue;
-            
+
         if(rates[i].low < first_bottom && rates[i].low < rates[i+1].low && rates[i].low < rates[i-1].low)
         {
             first_bottom = rates[i].low;
             first_bottom_idx = i;
         }
     }
-    
+
     if(first_bottom_idx == -1) {
         s_cached_pattern_results[1] = 0;
+        neckline_out = 0;
+        quality_score = 0;
         return false;
     }
-    
+
     // Find the middle peak after the first bottom
     for(int i = first_bottom_idx-1; i >= 10; i--)
     {
-        if(!CheckArrayAccess(i, size, "IsDoubleBottom") || 
-           !CheckArrayAccess(i+1, size, "IsDoubleBottom") || 
+        if(!CheckArrayAccess(i, size, "IsDoubleBottom") ||
+           !CheckArrayAccess(i+1, size, "IsDoubleBottom") ||
            !CheckArrayAccess(i-1, size, "IsDoubleBottom"))
             continue;
-            
+
         if(rates[i].high > middle_peak && rates[i].high > rates[i+1].high && rates[i].high > rates[i-1].high)
         {
             middle_peak = rates[i].high;
@@ -203,20 +267,22 @@ bool IsDoubleBottom(MqlRates &rates[])
             break;
         }
     }
-    
+
     if(middle_peak_idx == -1) {
         s_cached_pattern_results[1] = 0;
+        neckline_out = 0;
+        quality_score = 0;
         return false;
     }
-    
+
     // Find the second bottom after the middle peak
     for(int i = middle_peak_idx-1; i >= 3; i--)
     {
-        if(!CheckArrayAccess(i, size, "IsDoubleBottom") || 
-           !CheckArrayAccess(i+1, size, "IsDoubleBottom") || 
+        if(!CheckArrayAccess(i, size, "IsDoubleBottom") ||
+           !CheckArrayAccess(i+1, size, "IsDoubleBottom") ||
            !CheckArrayAccess(i-1, size, "IsDoubleBottom"))
             continue;
-            
+
         if(rates[i].low < second_bottom && rates[i].low < rates[i+1].low && rates[i].low < rates[i-1].low)
         {
             second_bottom = rates[i].low;
@@ -224,22 +290,71 @@ bool IsDoubleBottom(MqlRates &rates[])
             break;
         }
     }
-    
+
     if(second_bottom_idx == -1) {
         s_cached_pattern_results[1] = 0;
+        neckline_out = 0;
+        quality_score = 0;
         return false;
     }
 
-    // Confirm Double Bottom pattern
+    // Set neckline (middle peak)
+    neckline_out = middle_peak;
+
+    // Calculate quality score (0-100)
+    quality_score = 0;
+
+    // Factor 1: Bottom symmetry (max 40 points)
+    double bottom_diff_percent = MathAbs(first_bottom - second_bottom) / first_bottom;
+    if(bottom_diff_percent < 0.005)  // < 0.5% difference
+        quality_score += 40;
+    else if(bottom_diff_percent < 0.01)  // < 1% difference
+        quality_score += 30;
+    else if(bottom_diff_percent < 0.02)  // < 2% difference
+        quality_score += 20;
+    else
+        quality_score += 10;
+
+    // Factor 2: Bottom separation (max 20 points)
+    int bottom_separation = first_bottom_idx - second_bottom_idx;
+    if(bottom_separation >= 20)
+        quality_score += 20;
+    else if(bottom_separation >= 15)
+        quality_score += 15;
+    else if(bottom_separation >= 10)
+        quality_score += 10;
+
+    // Factor 3: Pattern depth (max 20 points)
+    double pattern_depth = (middle_peak - first_bottom) / first_bottom;
+    if(pattern_depth > 0.03)  // > 3% depth
+        quality_score += 20;
+    else if(pattern_depth > 0.02)  // > 2% depth
+        quality_score += 15;
+    else if(pattern_depth > 0.01)  // > 1% depth
+        quality_score += 10;
+
+    // Factor 4: Clean pattern (max 20 points)
+    int noise_count = 0;
+    for(int i = second_bottom_idx + 1; i < first_bottom_idx; i++) {
+        if(i >= size) break;
+        // Count candles that breach the neckline significantly
+        if(rates[i].high > middle_peak * 1.005)  // 0.5% above neckline
+            noise_count++;
+    }
+    if(noise_count == 0)
+        quality_score += 20;
+    else if(noise_count <= 2)
+        quality_score += 10;
+
+    // Confirm Double Bottom pattern - NO BREAKOUT REQUIRED for early entry
     bool result = false;
     if(first_bottom_idx > middle_peak_idx && middle_peak_idx > second_bottom_idx)
     {
         // Two bottoms must be approximately at the same level
-        if(MathAbs(first_bottom - second_bottom) < 0.01 * first_bottom)
+        if(bottom_diff_percent < 0.02)  // Within 2%
         {
-            // Current price must be above the middle peak
-            if(CheckArrayAccess(0, size, "IsDoubleBottom") && rates[0].close > middle_peak)
-                result = true;
+            // Pattern is valid - don't require breakout
+            result = true;
         }
     }
 
@@ -1130,4 +1245,223 @@ bool IsBearishWedge(MqlRates &rates[])
     double current_upper_line = highs[0] + upper_slope * (0 - high_indices[0]);
 
     return (rates[0].close < current_lower_line);
-} 
+}
+
+//+------------------------------------------------------------------+
+//| Calculate pattern-specific stop loss                             |
+//+------------------------------------------------------------------+
+double CalculatePatternStopLoss(MqlRates &rates[], int pattern_type, bool is_buy)
+{
+    int size = ArraySize(rates);
+    if(size < 20) return 0;
+
+    double stop_loss = 0;
+
+    // Pattern-specific stop loss placement
+    switch(pattern_type)
+    {
+        case 0:  // PATTERN_DOUBLE_BOTTOM
+            // Place stop below the lower of the two bottoms
+            {
+                double lowest = DBL_MAX;
+                for(int i = 3; i < MathMin(20, size); i++) {
+                    if(rates[i].low < lowest)
+                        lowest = rates[i].low;
+                }
+                // Add small buffer (0.2% below lowest point)
+                stop_loss = lowest * 0.998;
+            }
+            break;
+
+        case 1:  // PATTERN_HEAD_SHOULDERS_BOTTOM
+            // Place stop below the head (lowest point)
+            {
+                double lowest = DBL_MAX;
+                for(int i = 3; i < MathMin(30, size); i++) {
+                    if(rates[i].low < lowest)
+                        lowest = rates[i].low;
+                }
+                stop_loss = lowest * 0.998;
+            }
+            break;
+
+        case 2:  // PATTERN_ASCENDING_TRIANGLE
+            // Place stop below the ascending support line
+            {
+                double recent_low = DBL_MAX;
+                for(int i = 0; i < MathMin(10, size); i++) {
+                    if(rates[i].low < recent_low)
+                        recent_low = rates[i].low;
+                }
+                stop_loss = recent_low * 0.998;
+            }
+            break;
+
+        case 3:  // PATTERN_CUP_HANDLE
+            // Place stop below the handle low
+            {
+                double handle_low = DBL_MAX;
+                for(int i = 0; i < MathMin(15, size); i++) {
+                    if(rates[i].low < handle_low)
+                        handle_low = rates[i].low;
+                }
+                stop_loss = handle_low * 0.998;
+            }
+            break;
+
+        case 4:  // PATTERN_BULLISH_WEDGE
+            // Place stop below recent swing low
+            {
+                double swing_low = DBL_MAX;
+                for(int i = 0; i < MathMin(10, size); i++) {
+                    if(rates[i].low < swing_low)
+                        swing_low = rates[i].low;
+                }
+                stop_loss = swing_low * 0.998;
+            }
+            break;
+
+        case 5:  // PATTERN_DOUBLE_TOP
+            // Place stop above the higher of the two tops
+            {
+                double highest = 0;
+                for(int i = 3; i < MathMin(20, size); i++) {
+                    if(rates[i].high > highest)
+                        highest = rates[i].high;
+                }
+                // Add small buffer (0.2% above highest point)
+                stop_loss = highest * 1.002;
+            }
+            break;
+
+        case 6:  // PATTERN_HEAD_SHOULDERS_TOP
+            // Place stop above the head (highest point)
+            {
+                double highest = 0;
+                for(int i = 3; i < MathMin(30, size); i++) {
+                    if(rates[i].high > highest)
+                        highest = rates[i].high;
+                }
+                stop_loss = highest * 1.002;
+            }
+            break;
+
+        case 7:  // PATTERN_DESCENDING_TRIANGLE
+            // Place stop above the descending resistance line
+            {
+                double recent_high = 0;
+                for(int i = 0; i < MathMin(10, size); i++) {
+                    if(rates[i].high > recent_high)
+                        recent_high = rates[i].high;
+                }
+                stop_loss = recent_high * 1.002;
+            }
+            break;
+
+        case 8:  // PATTERN_BEARISH_WEDGE
+            // Place stop above recent swing high
+            {
+                double swing_high = 0;
+                for(int i = 0; i < MathMin(10, size); i++) {
+                    if(rates[i].high > swing_high)
+                        swing_high = rates[i].high;
+                }
+                stop_loss = swing_high * 1.002;
+            }
+            break;
+
+        case 9:  // PATTERN_DIAMOND_TOP
+            // Place stop above recent high
+            {
+                double recent_high = 0;
+                for(int i = 0; i < MathMin(15, size); i++) {
+                    if(rates[i].high > recent_high)
+                        recent_high = rates[i].high;
+                }
+                stop_loss = recent_high * 1.002;
+            }
+            break;
+
+        default:
+            stop_loss = 0;
+            break;
+    }
+
+    return stop_loss;
+}
+
+// Wrapper functions for patterns that don't have quality scoring yet
+// These maintain backward compatibility while we transition
+
+bool IsHeadAndShoulders(MqlRates &rates[], double &neckline, double &quality_score)
+{
+    // Call original function and set default quality
+    bool result = IsHeadAndShoulders(rates);
+    neckline = 0;  // Would need to extract from original function
+    quality_score = result ? 70.0 : 0;  // Default score
+    return result;
+}
+
+bool IsInverseHeadAndShoulders(MqlRates &rates[], double &neckline, double &quality_score)
+{
+    bool result = IsInverseHeadAndShoulders(rates);
+    neckline = 0;
+    quality_score = result ? 70.0 : 0;
+    return result;
+}
+
+bool IsBullishFlag(MqlRates &rates[], double &breakout_level, double &quality_score)
+{
+    bool result = IsBullishFlag(rates);
+    breakout_level = 0;
+    quality_score = result ? 70.0 : 0;
+    return result;
+}
+
+bool IsBearishFlag(MqlRates &rates[], double &breakout_level, double &quality_score)
+{
+    bool result = IsBearishFlag(rates);
+    breakout_level = 0;
+    quality_score = result ? 70.0 : 0;
+    return result;
+}
+
+bool IsCupAndHandle(MqlRates &rates[], double &breakout_level, double &quality_score)
+{
+    bool result = IsCupAndHandle(rates);
+    breakout_level = 0;
+    quality_score = result ? 70.0 : 0;
+    return result;
+}
+
+bool IsAscendingTriangle(MqlRates &rates[], double &resistance, double &quality_score)
+{
+    bool result = IsAscendingTriangle(rates);
+    resistance = 0;
+    quality_score = result ? 70.0 : 0;
+    return result;
+}
+
+bool IsDescendingTriangle(MqlRates &rates[], double &support, double &quality_score)
+{
+    bool result = IsDescendingTriangle(rates);
+    support = 0;
+    quality_score = result ? 70.0 : 0;
+    return result;
+}
+
+bool IsBullishWedge(MqlRates &rates[], double &upper_line, double &quality_score)
+{
+    bool result = IsBullishWedge(rates);
+    upper_line = 0;
+    quality_score = result ? 70.0 : 0;
+    return result;
+}
+
+bool IsBearishWedge(MqlRates &rates[], double &lower_line, double &quality_score)
+{
+    bool result = IsBearishWedge(rates);
+    lower_line = 0;
+    quality_score = result ? 70.0 : 0;
+    return result;
+}

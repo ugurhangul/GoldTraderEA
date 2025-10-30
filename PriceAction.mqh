@@ -27,12 +27,12 @@ int CheckPriceActionBuy()
 
     int confirmations = 0;
 
-    // Get price data - increased to 100 for trend pattern analysis
+    // Get price data - reduced back to 50 for better short-term pattern detection
     MqlRates rates[];
     ArraySetAsSeries(rates, true);
-    int copied = CopyRates(Symbol(), PA_Timeframe, 0, 100, rates);
+    int copied = CopyRates(Symbol(), PA_Timeframe, 0, 50, rates);
 
-    if(copied < 30) {
+    if(copied < 20) {
         DebugPrint("Error retrieving data for CheckPriceActionBuy: " + IntegerToString(GetLastError()));
         return 0;
     }
@@ -71,12 +71,12 @@ int CheckPriceActionShort()
 
     int confirmations = 0;
 
-    // Get price data - increased to 100 for trend pattern analysis
+    // Get price data - reduced back to 50 for better short-term pattern detection
     MqlRates rates[];
     ArraySetAsSeries(rates, true);
-    int copied = CopyRates(Symbol(), PA_Timeframe, 0, 100, rates);
+    int copied = CopyRates(Symbol(), PA_Timeframe, 0, 50, rates);
 
-    if(copied < 30) {
+    if(copied < 20) {
         DebugPrint("Error retrieving data for CheckPriceActionShort: " + IntegerToString(GetLastError()));
         return 0;
     }

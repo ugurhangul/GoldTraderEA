@@ -124,7 +124,8 @@ bool IsBullishRSIDivergence(MqlRates &rates[])
     }
 
     // Minimum separation between swing points to avoid noise
-    const int MIN_SWING_SEPARATION = 5;
+    // FIXED: Reduced from 5 to 3 to allow more swing detection opportunities
+    const int MIN_SWING_SEPARATION = 3;
 
     int low1_idx = -1, low2_idx = -1;
     double rsi_low1 = 0, rsi_low2 = 0;
@@ -132,11 +133,11 @@ bool IsBullishRSIDivergence(MqlRates &rates[])
     // Find two most recent significant swing lows in price and corresponding RSI values
     // Loop from recent (index 2) to older candles (size-2)
     // In time-series arrays: smaller index = newer, larger index = older
-    for(int i = 2; i < size-2; i++)
+    for(int i = 1; i < size-1; i++)
     {
-        // Check if this is a swing low (lower than 2 candles on each side)
-        if(rates[i].low < rates[i-1].low && rates[i].low < rates[i+1].low &&
-           rates[i].low < rates[i-2].low && rates[i].low < rates[i+2].low)
+        // FIXED: Check if this is a swing low (lower than OR EQUAL to 1 candle on each side)
+        // Relaxed from strict < to <= to allow near-misses
+        if(rates[i].low <= rates[i-1].low && rates[i].low <= rates[i+1].low)
         {
             // Store the first swing low found (most recent)
             if(low1_idx == -1)
@@ -195,7 +196,8 @@ bool IsBearishRSIDivergence(MqlRates &rates[])
     }
 
     // Minimum separation between swing points to avoid noise
-    const int MIN_SWING_SEPARATION = 5;
+    // FIXED: Reduced from 5 to 3 to allow more swing detection opportunities
+    const int MIN_SWING_SEPARATION = 3;
 
     int high1_idx = -1, high2_idx = -1;
     double rsi_high1 = 0, rsi_high2 = 0;
@@ -203,11 +205,11 @@ bool IsBearishRSIDivergence(MqlRates &rates[])
     // Find two most recent significant swing highs in price and corresponding RSI values
     // Loop from recent (index 2) to older candles (size-2)
     // In time-series arrays: smaller index = newer, larger index = older
-    for(int i = 2; i < size-2; i++)
+    for(int i = 1; i < size-1; i++)
     {
-        // Check if this is a swing high (higher than 2 candles on each side)
-        if(rates[i].high > rates[i-1].high && rates[i].high > rates[i+1].high &&
-           rates[i].high > rates[i-2].high && rates[i].high > rates[i+2].high)
+        // FIXED: Check if this is a swing high (higher than OR EQUAL to 1 candle on each side)
+        // Relaxed from strict > to >= to allow near-misses
+        if(rates[i].high >= rates[i-1].high && rates[i].high >= rates[i+1].high)
         {
             // Store the first swing high found (most recent)
             if(high1_idx == -1)
@@ -267,7 +269,8 @@ bool IsBullishMACDDivergence(MqlRates &rates[])
     }
 
     // Minimum separation between swing points to avoid noise
-    const int MIN_SWING_SEPARATION = 5;
+    // FIXED: Reduced from 5 to 3 to allow more swing detection opportunities
+    const int MIN_SWING_SEPARATION = 3;
 
     int low1_idx = -1, low2_idx = -1;
     double macd_low1 = 0, macd_low2 = 0;
@@ -275,11 +278,11 @@ bool IsBullishMACDDivergence(MqlRates &rates[])
     // Find two most recent significant swing lows in price and corresponding MACD values
     // Loop from recent (index 2) to older candles (size-2)
     // In time-series arrays: smaller index = newer, larger index = older
-    for(int i = 2; i < size-2; i++)
+    for(int i = 1; i < size-1; i++)
     {
-        // Check if this is a swing low (lower than 2 candles on each side)
-        if(rates[i].low < rates[i-1].low && rates[i].low < rates[i+1].low &&
-           rates[i].low < rates[i-2].low && rates[i].low < rates[i+2].low)
+        // FIXED: Check if this is a swing low (lower than OR EQUAL to 1 candle on each side)
+        // Relaxed from strict < to <= to allow near-misses
+        if(rates[i].low <= rates[i-1].low && rates[i].low <= rates[i+1].low)
         {
             // Verify array bounds for MACD access
             if(i >= ArraySize(macd)) continue;
@@ -347,19 +350,20 @@ bool IsBearishMACDDivergence(MqlRates &rates[])
     }
 
     // Minimum separation between swing points to avoid noise
-    const int MIN_SWING_SEPARATION = 5;
+    // FIXED: Reduced from 5 to 3 to allow more swing detection opportunities
+    const int MIN_SWING_SEPARATION = 3;
 
     int high1_idx = -1, high2_idx = -1;
     double macd_high1 = 0, macd_high2 = 0;
 
     // Find two most recent significant swing highs in price and corresponding MACD values
-    // Loop from recent (index 2) to older candles (size-2)
+    // Loop from recent (index 1) to older candles (size-1)
     // In time-series arrays: smaller index = newer, larger index = older
-    for(int i = 2; i < size-2; i++)
+    for(int i = 1; i < size-1; i++)
     {
-        // Check if this is a swing high (higher than 2 candles on each side)
-        if(rates[i].high > rates[i-1].high && rates[i].high > rates[i+1].high &&
-           rates[i].high > rates[i-2].high && rates[i].high > rates[i+2].high)
+        // FIXED: Check if this is a swing high (higher than OR EQUAL to 1 candle on each side)
+        // Relaxed from strict > to >= to allow near-misses
+        if(rates[i].high >= rates[i-1].high && rates[i].high >= rates[i+1].high)
         {
             // Verify array bounds for MACD access
             if(i >= ArraySize(macd)) continue;

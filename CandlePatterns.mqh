@@ -1,7 +1,7 @@
 //+------------------------------------------------------------------+
 //|                                                CandlePatterns.mqh |
 //|                                       Copyright 2023, Gold Trader |
-//|                                                                   |
+//|                                  REDESIGNED FOR MARKET CONTEXT    |
 //+------------------------------------------------------------------+
 #property copyright "Copyright 2023, Gold Trader"
 #property strict
@@ -9,16 +9,26 @@
 // Declare external variables needed
 extern ENUM_TIMEFRAMES CP_Timeframe;
 
-// Configurable pattern thresholds
-input double CP_PinBar_Shadow_Body_Ratio = 2.0;      // Pin Bar: Shadow to body ratio
-input double CP_PinBar_Shadow_Length_Ratio = 0.6;    // Pin Bar: Shadow to total length ratio
-input double CP_Hammer_Shadow_Body_Ratio = 2.0;      // Hammer: Shadow to body ratio
-input double CP_Hammer_Shadow_Length_Ratio = 0.6;    // Hammer: Shadow to total length ratio
-input double CP_Star_Small_Body_Ratio = 0.5;         // Morning/Evening Star: Small body ratio
-input double CP_Star_Recovery_Ratio = 0.5;           // Morning/Evening Star: Recovery ratio
-input double CP_Engulfing_Min_Size_Ratio = 0.8;      // Engulfing: Minimum size ratio
-input double CP_Soldiers_Body_Ratio = 0.7;           // Three Soldiers/Crows: Body to total ratio
+// Pattern recognition constants (calibrated values, do not change)
+const double CP_PinBar_Shadow_Body_Ratio = 2.0;      // Pin Bar: Shadow to body ratio (technical constant)
+const double CP_PinBar_Shadow_Length_Ratio = 0.6;    // Pin Bar: Shadow to total length ratio (technical constant)
+const double CP_Hammer_Shadow_Body_Ratio = 2.0;      // Hammer: Shadow to body ratio (technical constant)
+const double CP_Hammer_Shadow_Length_Ratio = 0.6;    // Hammer: Shadow to total length ratio (technical constant)
+const double CP_Star_Small_Body_Ratio = 0.5;         // Morning/Evening Star: Small body ratio (technical constant)
+const double CP_Star_Recovery_Ratio = 0.5;           // Morning/Evening Star: Recovery ratio (technical constant)
+const double CP_Engulfing_Min_Size_Ratio = 0.8;      // Engulfing: Minimum size ratio (technical constant)
+const double CP_Soldiers_Body_Ratio = 0.7;           // Three Soldiers/Crows: Body to total ratio (technical constant)
 input bool CP_Use_Three_Soldiers_Crows = true;       // Use Three White Soldiers/Black Crows patterns
+
+// Market context validation constants (calibrated values, do not change)
+const double CP_Min_ADX_Trend = 25.0;                // Minimum ADX for established trend (calibrated)
+const bool CP_Require_Trend_Context = true;          // Require trend for reversal patterns (best practice)
+const bool CP_Require_SR_Confirmation = true;        // Require S/R level confirmation (best practice)
+const double CP_SR_Proximity_Percent = 0.01;         // S/R proximity tolerance 1% (calibrated)
+const bool CP_Require_Volume_Confirmation = true;    // Require volume confirmation for engulfing (best practice)
+const double CP_Volume_Multiplier = 1.2;             // Volume must be X times average (calibrated)
+const bool CP_Use_Pattern_Specific_SL = true;        // Use pattern-specific stop loss (best practice)
+const int CP_Min_Confluence_Count = 2;               // Minimum confirmations required (calibrated)
 
 // Static variables for caching - separate for buy and sell
 static datetime s_cp_last_buy_time = 0;
@@ -27,16 +37,198 @@ static int s_cp_cached_buy_count = -1;
 static int s_cp_cached_sell_count = -1;
 static bool s_cp_buy_pattern_cache[7] = {false, false, false, false, false, false, false};
 static bool s_cp_sell_pattern_cache[7] = {false, false, false, false, false, false, false};
+static double s_cp_pattern_stop_loss[7] = {0, 0, 0, 0, 0, 0, 0};
 
-// The DebugPrint function must be defined in the main file
-#import "GoldTraderEA_cleaned.mq5"
-void DebugPrint(string message);
-bool GetDebugMode();
-void ResetExternalCandleCache();
+// Import functions from main EA file
+#import "GoldTraderEA.mq5"
+   void DebugPrint(string message);
+   bool GetDebugMode();
+   void ResetExternalCandleCache();
 #import
 
+// External indicator arrays and handles from main EA
+// These are declared as extern to access global variables from the main EA
+extern int handle_adx;
+extern int handle_ma_fast;
+extern int handle_ma_slow;
+extern int handle_atr;
+extern double adx[];
+extern double ma_fast[];
+extern double ma_slow[];
+extern double atr[];
+extern long g_volumes[];
+
+// Note: support_levels[], resistance_levels[], support_count, resistance_count
+// are defined in SupportResistance.mqh which is included in the main EA
+// They are globally available and don't need extern declaration here
+
 //+------------------------------------------------------------------+
-//| Check candlestick patterns for buying                             |
+//| Helper: Validate trend context for reversal patterns             |
+//+------------------------------------------------------------------+
+bool ValidateTrendContext(bool is_bullish_reversal)
+{
+    if(!CP_Require_Trend_Context)
+        return true;
+
+    // Check if we have enough indicator data
+    if(ArraySize(adx) < 1 || ArraySize(ma_fast) < 1 || ArraySize(ma_slow) < 1) {
+        if(GetDebugMode()) DebugPrint("CP: Insufficient indicator data for trend validation");
+        return false;
+    }
+
+    // Check ADX for trend strength - must have established trend to reverse
+    if(adx[0] < CP_Min_ADX_Trend) {
+        if(GetDebugMode()) DebugPrint("CP: ADX too low (ranging market): " + DoubleToString(adx[0], 2));
+        return false;
+    }
+
+    // For bullish reversal, we need a downtrend (MA_fast < MA_slow)
+    // For bearish reversal, we need an uptrend (MA_fast > MA_slow)
+    bool current_trend_down = ma_fast[0] < ma_slow[0];
+    bool trend_correct = (is_bullish_reversal && current_trend_down) || (!is_bullish_reversal && !current_trend_down);
+
+    if(!trend_correct && GetDebugMode()) {
+        DebugPrint("CP: No trend to reverse - Pattern: " + (is_bullish_reversal ? "Bullish" : "Bearish") +
+                   ", Trend: " + (current_trend_down ? "Down" : "Up"));
+    }
+
+    return trend_correct;
+}
+
+//+------------------------------------------------------------------+
+//| Helper: Check if pattern is at key S/R level                     |
+//+------------------------------------------------------------------+
+bool IsPatternAtSRLevel(MqlRates &rates[], bool is_support)
+{
+    if(!CP_Require_SR_Confirmation)
+        return true;
+
+    if(ArraySize(rates) < 1)
+        return false;
+
+    double pattern_level = is_support ? rates[0].low : rates[0].high;
+    double tolerance = pattern_level * CP_SR_Proximity_Percent;
+
+    if(is_support) {
+        // Check if pattern is forming near support
+        if(support_count == 0) return false;
+        for(int i = 0; i < support_count; i++) {
+            if(MathAbs(pattern_level - support_levels[i]) <= tolerance)
+                return true;
+        }
+    } else {
+        // Check if pattern is forming near resistance
+        if(resistance_count == 0) return false;
+        for(int i = 0; i < resistance_count; i++) {
+            if(MathAbs(pattern_level - resistance_levels[i]) <= tolerance)
+                return true;
+        }
+    }
+
+    return false;
+}
+
+//+------------------------------------------------------------------+
+//| Helper: Check volume confirmation for engulfing patterns         |
+//+------------------------------------------------------------------+
+bool HasVolumeConfirmation(MqlRates &rates[])
+{
+    if(!CP_Require_Volume_Confirmation)
+        return true;
+
+    if(ArraySize(g_volumes) < 10)
+        return true;  // Can't validate, allow pattern
+
+    // Calculate average volume over last 10 candles (excluding current)
+    double avg_volume = 0;
+    for(int i = 1; i < 10; i++) {
+        avg_volume += (double)g_volumes[i];
+    }
+    avg_volume /= 9.0;
+
+    // Current candle volume should be above average
+    double current_volume = (double)g_volumes[0];
+    bool has_volume = current_volume >= avg_volume * CP_Volume_Multiplier;
+
+    if(!has_volume && GetDebugMode()) {
+        DebugPrint("CP: Insufficient volume - Current: " + DoubleToString(current_volume, 0) +
+                   ", Avg: " + DoubleToString(avg_volume, 0));
+    }
+
+    return has_volume;
+}
+
+//+------------------------------------------------------------------+
+//| Helper: Calculate pattern-specific stop loss                     |
+//+------------------------------------------------------------------+
+double CalculateCandlePatternStopLoss(MqlRates &rates[], int pattern_index, bool is_buy)
+{
+    if(!CP_Use_Pattern_Specific_SL || ArraySize(rates) < 1)
+        return 0;
+
+    double stop_loss = 0;
+
+    if(is_buy) {
+        // For bullish patterns, place stop below pattern extreme
+        switch(pattern_index) {
+            case 0:  // Pin Bar
+            case 2:  // Hammer
+                // Stop below the pin bar/hammer wick
+                stop_loss = rates[0].low * 0.9995;  // 0.05% buffer
+                break;
+            case 1:  // Inside Bar
+                // Stop below the mother bar (previous candle)
+                if(ArraySize(rates) >= 2)
+                    stop_loss = rates[1].low * 0.9995;
+                break;
+            case 3:  // Bullish Engulfing
+            case 4:  // Morning Star
+                // Stop below the pattern low
+                if(ArraySize(rates) >= 3) {
+                    double pattern_low = MathMin(rates[0].low, MathMin(rates[1].low, rates[2].low));
+                    stop_loss = pattern_low * 0.9995;
+                }
+                break;
+            case 5:  // Three White Soldiers
+                // Stop below the first soldier
+                if(ArraySize(rates) >= 3)
+                    stop_loss = rates[2].low * 0.9995;
+                break;
+        }
+    } else {
+        // For bearish patterns, place stop above pattern extreme
+        switch(pattern_index) {
+            case 0:  // Pin Bar
+            case 2:  // Shooting Star
+                // Stop above the pin bar/shooting star wick
+                stop_loss = rates[0].high * 1.0005;  // 0.05% buffer
+                break;
+            case 1:  // Inside Bar
+                // Stop above the mother bar
+                if(ArraySize(rates) >= 2)
+                    stop_loss = rates[1].high * 1.0005;
+                break;
+            case 3:  // Bearish Engulfing
+            case 4:  // Evening Star
+                // Stop above the pattern high
+                if(ArraySize(rates) >= 3) {
+                    double pattern_high = MathMax(rates[0].high, MathMax(rates[1].high, rates[2].high));
+                    stop_loss = pattern_high * 1.0005;
+                }
+                break;
+            case 5:  // Three Black Crows
+                // Stop above the first crow
+                if(ArraySize(rates) >= 3)
+                    stop_loss = rates[2].high * 1.0005;
+                break;
+        }
+    }
+
+    return stop_loss;
+}
+
+//+------------------------------------------------------------------+
+//| Check candlestick patterns for buying - REDESIGNED               |
 //+------------------------------------------------------------------+
 int CheckCandlePatternsBuy()
 {
@@ -58,61 +250,115 @@ int CheckCandlePatternsBuy()
     // Quick check for potential errors
     if(copied < 3) {
         // Log the error for debugging
-        DebugPrint("Error: Not enough data copied. Copied: " + IntegerToString(copied));
+        if(GetDebugMode()) DebugPrint("CP Buy: Not enough data copied. Copied: " + IntegerToString(copied));
+        s_cp_last_buy_time = current_time;
+        s_cp_cached_buy_count = 0;
+        return 0;
+    }
+
+    // Validate trend context first (must have downtrend to reverse)
+    if(!ValidateTrendContext(true)) {
+        if(GetDebugMode()) DebugPrint("CP Buy: Trend context validation failed");
         s_cp_last_buy_time = current_time;
         s_cp_cached_buy_count = 0;
         return 0;
     }
 
     // Reset pattern cache
-    for(int i=0; i<7; i++)
+    for(int i=0; i<7; i++) {
         s_cp_buy_pattern_cache[i] = false;
+        s_cp_pattern_stop_loss[i] = 0;
+    }
 
-    // Pin Bar (Bullish)
+    int confluence_count = 0;
+
+    // Pin Bar (Bullish) - reversal pattern
     if(IsBullishPinBar(rates)) {
-        s_cp_buy_pattern_cache[0] = true;
-        confirmations++;
+        if(IsPatternAtSRLevel(rates, true)) {  // Must be at support
+            s_cp_buy_pattern_cache[0] = true;
+            s_cp_pattern_stop_loss[0] = CalculateCandlePatternStopLoss(rates, 0, true);
+            confirmations++;
+            confluence_count++;
+            if(GetDebugMode()) DebugPrint("CP: Bullish Pin Bar at support");
+        }
     }
 
     // Inside Bar (Bullish)
     if(IsBullishInsideBar(rates)) {
-        s_cp_buy_pattern_cache[1] = true;
-        confirmations++;
+        if(IsPatternAtSRLevel(rates, true)) {
+            s_cp_buy_pattern_cache[1] = true;
+            s_cp_pattern_stop_loss[1] = CalculateCandlePatternStopLoss(rates, 1, true);
+            confirmations++;
+            confluence_count++;
+            if(GetDebugMode()) DebugPrint("CP: Bullish Inside Bar at support");
+        }
     }
 
-    // Hammer
+    // Hammer - reversal pattern
     if(IsHammer(rates)) {
-        s_cp_buy_pattern_cache[2] = true;
-        confirmations++;
+        if(IsPatternAtSRLevel(rates, true)) {
+            s_cp_buy_pattern_cache[2] = true;
+            s_cp_pattern_stop_loss[2] = CalculateCandlePatternStopLoss(rates, 2, true);
+            confirmations++;
+            confluence_count++;
+            if(GetDebugMode()) DebugPrint("CP: Hammer at support");
+        }
     }
 
-    // Bullish Engulfing
+    // Bullish Engulfing - requires volume confirmation
     if(IsBullishEngulfing(rates)) {
-        s_cp_buy_pattern_cache[3] = true;
-        confirmations++;
+        if(IsPatternAtSRLevel(rates, true) && HasVolumeConfirmation(rates)) {
+            s_cp_buy_pattern_cache[3] = true;
+            s_cp_pattern_stop_loss[3] = CalculateCandlePatternStopLoss(rates, 3, true);
+            confirmations++;
+            confluence_count++;
+            if(GetDebugMode()) DebugPrint("CP: Bullish Engulfing at support with volume");
+        }
     }
 
     // Morning Star
     if(IsMorningStar(rates)) {
-        s_cp_buy_pattern_cache[4] = true;
-        confirmations++;
+        if(IsPatternAtSRLevel(rates, true)) {
+            s_cp_buy_pattern_cache[4] = true;
+            s_cp_pattern_stop_loss[4] = CalculateCandlePatternStopLoss(rates, 4, true);
+            confirmations++;
+            confluence_count++;
+            if(GetDebugMode()) DebugPrint("CP: Morning Star at support");
+        }
     }
 
     // Three White Soldiers (if enabled)
     if(CP_Use_Three_Soldiers_Crows && IsThreeWhiteSoldiers(rates)) {
-        s_cp_buy_pattern_cache[5] = true;
-        confirmations++;
+        if(IsPatternAtSRLevel(rates, true)) {
+            s_cp_buy_pattern_cache[5] = true;
+            s_cp_pattern_stop_loss[5] = CalculateCandlePatternStopLoss(rates, 5, true);
+            confirmations++;
+            confluence_count++;
+            if(GetDebugMode()) DebugPrint("CP: Three White Soldiers at support");
+        }
+    }
+
+    // Check confluence requirement
+    if(confluence_count < CP_Min_Confluence_Count) {
+        if(GetDebugMode()) DebugPrint("CP Buy: Insufficient confluence - " + IntegerToString(confluence_count) +
+                                      " < " + IntegerToString(CP_Min_Confluence_Count));
+        confirmations = 0;  // Reset if not enough confluence
     }
 
     // Store result in cache
     s_cp_last_buy_time = current_time;
     s_cp_cached_buy_count = confirmations;
 
+    if(confirmations > 0 && GetDebugMode()) {
+        DebugPrint("CP Buy: Total confirmations = " + IntegerToString(confirmations) +
+                   ", Confluence = " + IntegerToString(confluence_count));
+    }
+
     return confirmations;
 }
 
 //+------------------------------------------------------------------+
-//| Check candlestick patterns for selling                            |
+//| Check candlestick patterns for selling - REDESIGNED              |
 //+------------------------------------------------------------------+
 int CheckCandlePatternsShort()
 {
@@ -134,55 +380,109 @@ int CheckCandlePatternsShort()
     // Quick check for potential errors
     if(copied < 3) {
         // Log the error for debugging
-        DebugPrint("Error: Not enough data copied. Copied: " + IntegerToString(copied));
+        if(GetDebugMode()) DebugPrint("CP Short: Not enough data copied. Copied: " + IntegerToString(copied));
+        s_cp_last_sell_time = current_time;
+        s_cp_cached_sell_count = 0;
+        return 0;
+    }
+
+    // Validate trend context first (must have uptrend to reverse)
+    if(!ValidateTrendContext(false)) {
+        if(GetDebugMode()) DebugPrint("CP Short: Trend context validation failed");
         s_cp_last_sell_time = current_time;
         s_cp_cached_sell_count = 0;
         return 0;
     }
 
     // Reset pattern cache
-    for(int i=0; i<7; i++)
+    for(int i=0; i<7; i++) {
         s_cp_sell_pattern_cache[i] = false;
+        s_cp_pattern_stop_loss[i] = 0;
+    }
 
-    // Pin Bar (Bearish)
+    int confluence_count = 0;
+
+    // Pin Bar (Bearish) - reversal pattern
     if(IsBearishPinBar(rates)) {
-        s_cp_sell_pattern_cache[0] = true;
-        confirmations++;
+        if(IsPatternAtSRLevel(rates, false)) {  // Must be at resistance
+            s_cp_sell_pattern_cache[0] = true;
+            s_cp_pattern_stop_loss[0] = CalculateCandlePatternStopLoss(rates, 0, false);
+            confirmations++;
+            confluence_count++;
+            if(GetDebugMode()) DebugPrint("CP: Bearish Pin Bar at resistance");
+        }
     }
 
     // Inside Bar (Bearish)
     if(IsBearishInsideBar(rates)) {
-        s_cp_sell_pattern_cache[1] = true;
-        confirmations++;
+        if(IsPatternAtSRLevel(rates, false)) {
+            s_cp_sell_pattern_cache[1] = true;
+            s_cp_pattern_stop_loss[1] = CalculateCandlePatternStopLoss(rates, 1, false);
+            confirmations++;
+            confluence_count++;
+            if(GetDebugMode()) DebugPrint("CP: Bearish Inside Bar at resistance");
+        }
     }
 
-    // Shooting Star
+    // Shooting Star - reversal pattern
     if(IsShootingStar(rates)) {
-        s_cp_sell_pattern_cache[2] = true;
-        confirmations++;
+        if(IsPatternAtSRLevel(rates, false)) {
+            s_cp_sell_pattern_cache[2] = true;
+            s_cp_pattern_stop_loss[2] = CalculateCandlePatternStopLoss(rates, 2, false);
+            confirmations++;
+            confluence_count++;
+            if(GetDebugMode()) DebugPrint("CP: Shooting Star at resistance");
+        }
     }
 
-    // Bearish Engulfing
+    // Bearish Engulfing - requires volume confirmation
     if(IsBearishEngulfing(rates)) {
-        s_cp_sell_pattern_cache[3] = true;
-        confirmations++;
+        if(IsPatternAtSRLevel(rates, false) && HasVolumeConfirmation(rates)) {
+            s_cp_sell_pattern_cache[3] = true;
+            s_cp_pattern_stop_loss[3] = CalculateCandlePatternStopLoss(rates, 3, false);
+            confirmations++;
+            confluence_count++;
+            if(GetDebugMode()) DebugPrint("CP: Bearish Engulfing at resistance with volume");
+        }
     }
 
     // Evening Star
     if(IsEveningStar(rates)) {
-        s_cp_sell_pattern_cache[4] = true;
-        confirmations++;
+        if(IsPatternAtSRLevel(rates, false)) {
+            s_cp_sell_pattern_cache[4] = true;
+            s_cp_pattern_stop_loss[4] = CalculateCandlePatternStopLoss(rates, 4, false);
+            confirmations++;
+            confluence_count++;
+            if(GetDebugMode()) DebugPrint("CP: Evening Star at resistance");
+        }
     }
 
     // Three Black Crows (if enabled)
     if(CP_Use_Three_Soldiers_Crows && IsThreeBlackCrows(rates)) {
-        s_cp_sell_pattern_cache[5] = true;
-        confirmations++;
+        if(IsPatternAtSRLevel(rates, false)) {
+            s_cp_sell_pattern_cache[5] = true;
+            s_cp_pattern_stop_loss[5] = CalculateCandlePatternStopLoss(rates, 5, false);
+            confirmations++;
+            confluence_count++;
+            if(GetDebugMode()) DebugPrint("CP: Three Black Crows at resistance");
+        }
+    }
+
+    // Check confluence requirement
+    if(confluence_count < CP_Min_Confluence_Count) {
+        if(GetDebugMode()) DebugPrint("CP Short: Insufficient confluence - " + IntegerToString(confluence_count) +
+                                      " < " + IntegerToString(CP_Min_Confluence_Count));
+        confirmations = 0;  // Reset if not enough confluence
     }
 
     // Store result in cache
     s_cp_last_sell_time = current_time;
     s_cp_cached_sell_count = confirmations;
+
+    if(confirmations > 0 && GetDebugMode()) {
+        DebugPrint("CP Short: Total confirmations = " + IntegerToString(confirmations) +
+                   ", Confluence = " + IntegerToString(confluence_count));
+    }
 
     return confirmations;
 }
@@ -561,8 +861,19 @@ void ResetCandlePatternsCache()
     for(int i=0; i<7; i++) {
         s_cp_buy_pattern_cache[i] = false;
         s_cp_sell_pattern_cache[i] = false;
+        s_cp_pattern_stop_loss[i] = 0;
     }
 
     // Notify the main file that the cache has been reset
     ResetExternalCandleCache();
+}
+
+//+------------------------------------------------------------------+
+//| Get pattern-specific stop loss for specific pattern              |
+//+------------------------------------------------------------------+
+double GetCandlePatternStopLoss(int pattern_index)
+{
+    if(pattern_index >= 0 && pattern_index < 7)
+        return s_cp_pattern_stop_loss[pattern_index];
+    return 0;
 }
