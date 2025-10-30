@@ -615,8 +615,8 @@ int OnInit()
    ea_settings += "      }\n";
    ea_settings += "    }\n";
 
-   // Initialize JSON trade export
-   if(!g_trade_tracker.InitializeJSON(json_filename, ea_settings))
+   // Initialize JSON trade export with dynamic version and build
+   if(!g_trade_tracker.InitializeJSON(json_filename, EA_VERSION, EA_BUILD, ea_settings))
    {
       Print("WARNING: Failed to initialize JSON trade export. Continuing without JSON tracking.");
    }

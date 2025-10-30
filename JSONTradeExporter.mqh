@@ -87,7 +87,7 @@ public:
    CJSONTradeExporter();
    ~CJSONTradeExporter();
 
-   bool InitializeJSON(string filename, string ea_settings = "");
+   bool InitializeJSON(string filename, string ea_version = "2.40", int ea_build = 2010, string ea_settings = "");
    void AddTrade(JSONTradeInfo &trade);
    void WriteTradeToJSON(JSONTradeInfo &trade);
    void CloseJSON();
@@ -116,7 +116,7 @@ CJSONTradeExporter::~CJSONTradeExporter()
 //+------------------------------------------------------------------+
 //| Initialize JSON file                                              |
 //+------------------------------------------------------------------+
-bool CJSONTradeExporter::InitializeJSON(string filename, string ea_settings = "")
+bool CJSONTradeExporter::InitializeJSON(string filename, string ea_version = "2.40", int ea_build = 2010, string ea_settings = "")
 {
    m_json_filename = filename;
 
@@ -135,7 +135,8 @@ bool CJSONTradeExporter::InitializeJSON(string filename, string ea_settings = ""
    FileWriteString(m_file_handle, "{\n");
    FileWriteString(m_file_handle, "  \"export_info\": {\n");
    FileWriteString(m_file_handle, "    \"ea_name\": \"GoldTraderEA\",\n");
-   FileWriteString(m_file_handle, "    \"version\": \"2.20\",\n");
+   FileWriteString(m_file_handle, "    \"ea_version\": \"" + ea_version + "\",\n");
+   FileWriteString(m_file_handle, "    \"ea_build\": " + IntegerToString(ea_build) + ",\n");
    FileWriteString(m_file_handle, "    \"export_date\": \"" + TimeToString(TimeCurrent(), TIME_DATE|TIME_MINUTES) + "\",\n");
    FileWriteString(m_file_handle, "    \"symbol\": \"" + Symbol() + "\",\n");
    FileWriteString(m_file_handle, "    \"timeframe\": \"" + EnumToString(Period()) + "\"");
