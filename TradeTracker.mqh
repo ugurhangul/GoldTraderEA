@@ -109,7 +109,7 @@ public:
    void CloseCSV();
 
    // JSON logging
-   bool InitializeJSON(string filename, string ea_settings = "");
+   bool InitializeJSON(string filename, string ea_version = "2.40", int ea_build = 2010, string ea_settings = "");
    void WriteTradeToJSON(TradeInfo &trade);
    void CloseJSON();
 
@@ -399,9 +399,9 @@ void CTradeTracker::CloseCSV()
 //+------------------------------------------------------------------+
 //| Initialize JSON file for trade logging                           |
 //+------------------------------------------------------------------+
-bool CTradeTracker::InitializeJSON(string filename, string ea_settings = "")
+bool CTradeTracker::InitializeJSON(string filename, string ea_version = "2.40", int ea_build = 2010, string ea_settings = "")
 {
-   m_json_enabled = m_json_exporter.InitializeJSON(filename, ea_settings);
+   m_json_enabled = m_json_exporter.InitializeJSON(filename, ea_version, ea_build, ea_settings);
    return m_json_enabled;
 }
 
