@@ -647,6 +647,91 @@ void OnDeinit(const int reason)
 }
 
 //+------------------------------------------------------------------+
+//| Check if extreme market conditions require additional confirmation|
+//| Returns true if signal should be rejected                         |
+//+------------------------------------------------------------------+
+bool RequiresAdditionalConfirmation(bool is_buy, int &votes[])
+{
+   // Get current market indicator values
+   double current_rsi = (ArraySize(rsi) > 0) ? rsi[0] : 50.0;
+   double current_adx = (ArraySize(adx) > 0) ? adx[0] : 25.0;
+   double current_macd = (ArraySize(macd) > 0) ? macd[0] : 0.0;
+
+   // Check if we're in extreme zones
+   bool rsi_extreme = false;
+   bool adx_extreme = false;
+   bool macd_extreme = false;
+
+   // RSI extreme zones
+   if(is_buy && current_rsi > 65.0) {
+      rsi_extreme = true;
+      if(G_Debug) DebugPrint("EXTREME ZONE: RSI overbought (" + DoubleToString(current_rsi, 2) + ") for LONG trade");
+   }
+   else if(!is_buy && current_rsi < 35.0) {
+      rsi_extreme = true;
+      if(G_Debug) DebugPrint("EXTREME ZONE: RSI oversold (" + DoubleToString(current_rsi, 2) + ") for SHORT trade");
+   }
+
+   // ADX extreme zone (strong trend, potential exhaustion)
+   if(current_adx > 45.0) {
+      adx_extreme = true;
+      if(G_Debug) DebugPrint("EXTREME ZONE: ADX high (" + DoubleToString(current_adx, 2) + ") - potential trend exhaustion");
+   }
+
+   // MACD extreme zones
+   if(current_macd > 15.0 || current_macd < -15.0) {
+      macd_extreme = true;
+      if(G_Debug) DebugPrint("EXTREME ZONE: MACD extreme (" + DoubleToString(current_macd, 2) + ") - extreme momentum");
+   }
+
+   // If no extreme conditions, no additional confirmation needed
+   if(!rsi_extreme && !adx_extreme && !macd_extreme) {
+      return false;
+   }
+
+   // We're in extreme conditions - check if only MTF and PA are voting
+   // Index mapping: 0=Candle, 1=Chart, 2=PA, 3=Indicator, 4=SR, 5=Volume, 6=MTF
+   bool has_mtf = (votes[6] != 0);  // MultiTimeframe
+   bool has_pa = (votes[2] != 0);   // PriceAction
+
+   // Check if we have confirmation from Indicators, SupportResistance, or VolumeAnalysis
+   bool has_indicators = (votes[3] != 0);      // Indicators
+   bool has_sr = (votes[4] != 0);              // SupportResistance
+   bool has_volume = (votes[5] != 0);          // VolumeAnalysis
+
+   bool has_additional_confirmation = has_indicators || has_sr || has_volume;
+
+   // Count total strategies voting
+   int strategies_voting = 0;
+   for(int i = 0; i < 7; i++) {
+      if(votes[i] != 0) strategies_voting++;
+   }
+
+   // If only MTF and PA are voting (or just one of them), and we're in extreme conditions
+   if(strategies_voting <= 2 && has_mtf && has_pa && !has_additional_confirmation) {
+      if(G_Debug) {
+         DebugPrint("EXTREME MARKET FILTER REJECT: Only MTF+PA voting in extreme conditions");
+         DebugPrint("  RSI: " + DoubleToString(current_rsi, 2) + (rsi_extreme ? " [EXTREME]" : ""));
+         DebugPrint("  ADX: " + DoubleToString(current_adx, 2) + (adx_extreme ? " [EXTREME]" : ""));
+         DebugPrint("  MACD: " + DoubleToString(current_macd, 2) + (macd_extreme ? " [EXTREME]" : ""));
+         DebugPrint("  Strategies voting: " + IntegerToString(strategies_voting));
+         DebugPrint("  Need at least one of: Indicators, SupportResistance, or VolumeAnalysis");
+      }
+      return true;  // Reject the signal
+   }
+
+   // Additional confirmation present or not just MTF+PA
+   if(G_Debug && (rsi_extreme || adx_extreme || macd_extreme)) {
+      DebugPrint("EXTREME MARKET: Additional confirmation present - signal allowed");
+      DebugPrint("  Indicators: " + (has_indicators ? "YES" : "NO"));
+      DebugPrint("  SupportResistance: " + (has_sr ? "YES" : "NO"));
+      DebugPrint("  VolumeAnalysis: " + (has_volume ? "YES" : "NO"));
+   }
+
+   return false;  // Allow the signal
+}
+
+//+------------------------------------------------------------------+
 //| Build strategy consensus data for trade tracking                 |
 //+------------------------------------------------------------------+
 void BuildStrategyConsensus(bool is_buy, int &votes[], StrategySignal &strategy_votes[],
@@ -1348,6 +1433,14 @@ void OnTick()
             //     return;
             // }
 
+            // === EXTREME MARKET CONDITIONS FILTER ===
+            // When RSI/ADX/MACD are in extreme zones and only MTF+PA are voting,
+            // require additional confirmation from Indicators, SupportResistance, or VolumeAnalysis
+            if(RequiresAdditionalConfirmation(true, g_strategy_votes)) {
+                Print("FILTER REJECT [Build ", EA_BUILD, "]: Extreme market conditions - MTF+PA only, need additional confirmation");
+                return;
+            }
+
             if(G_Debug) DebugPrint("Buy conditions confirmed. Attempting to open buy position...");
             // Pass signal strength (buy_confirmations) to enable dynamic TP/SL
             bool result = SafeOpenBuyPosition(buy_confirmations);
@@ -1411,6 +1504,14 @@ void OnTick()
             //     Print("FILTER REJECT [Build ", EA_BUILD, "]: PA-Solo (no confirmation) - Total rejected: ", g_filter_rejections_pa_solo);
             //     return;
             // }
+
+            // === EXTREME MARKET CONDITIONS FILTER ===
+            // When RSI/ADX/MACD are in extreme zones and only MTF+PA are voting,
+            // require additional confirmation from Indicators, SupportResistance, or VolumeAnalysis
+            if(RequiresAdditionalConfirmation(false, g_strategy_votes)) {
+                Print("FILTER REJECT [Build ", EA_BUILD, "]: Extreme market conditions - MTF+PA only, need additional confirmation");
+                return;
+            }
 
             if(G_Debug) DebugPrint("Sell conditions confirmed. Attempting to open sell position...");
             // Pass signal strength (sell_confirmations) to enable dynamic TP/SL
